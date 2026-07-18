@@ -1,11 +1,21 @@
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from lib.parser import extract_from_bytes
 
 app = FastAPI(title="matchbooks-extraction")
+
+# Allow the Lovable frontend (or anything else) to call this service directly
+# from the browser. Locked down to specific origins later if needed.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
