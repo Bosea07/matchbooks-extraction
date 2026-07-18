@@ -1,5 +1,9 @@
-from fastapi import FastAPI
 from datetime import datetime, timezone
+
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
+
+from lib.parser import extract_from_bytes
 
 app = FastAPI(title="matchbooks-extraction")
 
@@ -14,11 +18,18 @@ def health():
 
 
 @app.post("/extract")
-def extract():
-    # Placeholder. Stage 2 fills this in with the layered format-recognition
-    # pipeline: file-type detection -> known-template match -> generic heuristic
-    # column detection -> confidence scoring -> Claude API fallback.
+async def extract(file: UploadFile = File(...)):
+    content = await file.read()
+
+    try:
+        result = extract_from_bytes(file.filename or "", content)
+    except ValueError as err:
+        return JSONResponse(status_code=400, content={"error": "extraction failed", "detail": str(err)})
+    except Exception as err:  # noqa: BLE001 - surface unexpected parser errors to the caller
+        return JSONResponse(status_code=500, content={"error": "unexpected extraction error", "detail": str(err)})
+
     return {
-        "error": "not implemented yet",
-        "note": "Stage 2 will add the universal SOA format recognition pipeline here.",
+        "filename": file.filename,
+        "records": result["records"],
+        "meta": result["meta"],
     }
