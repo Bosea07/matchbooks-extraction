@@ -1,45 +1,84 @@
-from datetime import datetime, timezone
-
-from fastapi import FastAPI, UploadFile, File
+"""MatchBooks extraction service.
+POST /extract (multipart 'file') -> {filename, records[], meta{}}
+Contract-compatible with v1; adds meta.confidence, meta.engine, meta.warnings,
+multi-format readers and a Claude fallback for low-confidence documents."""
+import datetime, os
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from lib.parser import extract_from_bytes
+from lib.readers import read_any
+from lib.parser import parse_grid
+from lib import claude_extract
 
-app = FastAPI(title="matchbooks-extraction")
+MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
+CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-# Allow the Lovable frontend (or anything else) to call this service directly
-# from the browser. Locked down to specific origins later if needed.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title='matchbooks-extraction', version='2.0.0')
+app.add_middleware(CORSMiddleware,
+                   allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
+                   allow_methods=['*'], allow_headers=['*'])
 
-
-@app.get("/health")
+@app.get('/health')
 def health():
-    return {
-        "status": "ok",
-        "service": "matchbooks-extraction",
-        "time": datetime.now(timezone.utc).isoformat(),
-    }
+    return {'status': 'ok', 'service': 'matchbooks-extraction',
+            'version': '2.0.0',
+            'claudeFallback': claude_extract.available(),
+            'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
-
-@app.post("/extract")
+@app.post('/extract')
 async def extract(file: UploadFile = File(...)):
-    content = await file.read()
+    data = await file.read()
+    if len(data) > MAX_BYTES:
+        raise HTTPException(413, detail=f'File exceeds {MAX_BYTES // (1024*1024)} MB limit')
+    if not data:
+        raise HTTPException(400, detail='Empty file')
+    filename = file.filename or 'upload'
 
+    # 1) deterministic pipeline
+    parse_error = None
+    records, meta = [], {}
     try:
-        result = extract_from_bytes(file.filename or "", content)
-    except ValueError as err:
-        return JSONResponse(status_code=400, content={"error": "extraction failed", "detail": str(err)})
-    except Exception as err:  # noqa: BLE001 - surface unexpected parser errors to the caller
-        return JSONResponse(status_code=500, content={"error": "unexpected extraction error", "detail": str(err)})
+        grid, reader_meta = read_any(filename, data)
+        records, meta = parse_grid(grid, reader_meta)
+        meta['engine'] = 'parser'
+    except ValueError as e:
+        parse_error = str(e)
+        if 'Unsupported file type' in parse_error or 'Legacy .doc' in parse_error:
+            raise HTTPException(415, detail=parse_error)
+    except Exception as e:  # reader crashed on a malformed file
+        parse_error = f'Parser failed: {e}'
 
-    return {
-        "filename": file.filename,
-        "records": result["records"],
-        "meta": result["meta"],
-    }
+    confident = records and meta.get('confidence', 0) >= CONF_THRESHOLD
+
+    # 2) Claude fallback for weak/failed extractions
+    if not confident and claude_extract.available():
+        try:
+            hint = None
+            if records:  # give Claude the text we did manage to read
+                hint = '\n'.join(
+                    f"{r['date']} {r['refRaw']} {r['type']} {r['amount']}" for r in records[:50])
+            result = claude_extract.extract(filename, data, text_hint=None)
+            if result:
+                c_records, c_meta = result
+                out_meta = {**{k: meta.get(k, -1) for k in
+                               ('headerRow', 'totalRows', 'dateCol', 'refCol', 'typeCol',
+                                'debitCol', 'creditCol', 'amountCol')},
+                            **c_meta,
+                            'parserConfidence': meta.get('confidence', 0.0),
+                            'parserWarnings': meta.get('warnings', []),
+                            'parserError': parse_error}
+                return {'filename': filename, 'records': c_records, 'meta': out_meta}
+        except Exception as e:
+            meta.setdefault('warnings', []).append(f'Claude fallback failed: {e}')
+
+    # 3) return parser result (or a clear error)
+    if not records:
+        detail = parse_error or 'No transactions could be extracted from this file'
+        if not claude_extract.available():
+            detail += ' (AI fallback not configured — set ANTHROPIC_API_KEY to enable)'
+        raise HTTPException(422, detail=detail)
+    if not confident:
+        meta.setdefault('warnings', []).append(
+            f"Low confidence ({meta.get('confidence')}) — review the extracted rows before reconciling")
+        meta['needsReview'] = True
+    return {'filename': filename, 'records': records, 'meta': meta}

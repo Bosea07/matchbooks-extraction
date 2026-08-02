@@ -1,194 +1,195 @@
-"""
-MatchBooks file extraction - generic heuristic column detection.
-
-Ported from the tested browser prototype (matchbooks-reconciliation-engine.html),
-which used the same header-synonym matching to turn arbitrary Excel/CSV SOA
-exports into normalized {ref, date, type, amount} records.
-
-Scope note: this is Layer 2 of the planned "universal SOA format recognition"
-pipeline (generic heuristic column detection). Known-template signature
-matching, confidence scoring, and the Claude API fallback for genuinely
-unrecognizable formats are separate, larger additions for later.
-"""
-
-import csv
-import io
-import math
+"""Grid -> records. Header detection, column mapping, row extraction,
+confidence scoring and the document-totals self-check."""
 import re
-from datetime import date, datetime
+from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
+                        infer_type, is_total_row, is_opening_row)
 
-DATE_KEYS = ['date', 'txn date', 'transaction date', 'invoice date', 'bill date', 'posting date']
-REF_KEYS = [
-    'ref', 'reference', 'ref no', 'ref#', 'reference no', 'reference number',
-    'invoice no', 'invoice #', 'invoice number', 'bill no', 'bill number',
-    'voucher no', 'voucher', 'document no', 'doc no'
-]
-TYPE_KEYS = ['type', 'transaction type', 'txn type', 'doc type']
-DEBIT_KEYS = ['debit', 'debit amount', 'dr', 'dr amount']
-CREDIT_KEYS = ['credit', 'credit amount', 'cr', 'cr amount']
-AMOUNT_KEYS = ['amount', 'invoice amount', 'total amount', 'value', 'net amount']
+HEADER_SYNONYMS = {
+    'date':   ['date', 'doc date', 'document date', 'txn date', 'transaction date',
+               'invoice date', 'bill date', 'posting date', 'entry date'],
+    'ref':    ['reference', 'ref', 'ref no', 'ref#', 'reference number', 'invoice', 'invoice no',
+               'invoice #', 'inv no', 'bill no', 'bill number', 'document', 'document no', 'doc no',
+               'voucher', 'voucher no', 'number', 'transaction#', 'transaction no', 'particulars ref'],
+    'type':   ['type', 'transaction type', 'doc type', 'document type', 'txn type', 'transaction'],
+    'debit':  ['debit', 'debits', 'debit amount', 'dr', 'dr amount', 'invoice amount', 'charges'],
+    'credit': ['credit', 'credits', 'credit amount', 'cr', 'cr amount', 'payment amount', 'payments'],
+    'amount': ['amount', 'amount aed', 'net amount', 'value', 'total', 'total amount',
+               'amount (aed)', 'aed', 'gross amount', 'balance amount'],
+    'desc':   ['description', 'narration', 'details', 'particulars', 'memo', 'remarks'],
+}
 
+def _match_header(cell):
+    if cell is None:
+        return None
+    s = re.sub(r'[^a-z#() ]', ' ', str(cell).lower()).strip()
+    s = re.sub(r'\s+', ' ', s)
+    if not s:
+        return None
+    for key, names in HEADER_SYNONYMS.items():
+        if s in names:
+            return key
+    for key, names in HEADER_SYNONYMS.items():
+        for n in names:
+            if len(s) > 2 and (s.startswith(n + ' ') or s.endswith(' ' + n) or n in s.split()):
+                return key
+    return None
 
-def _is_blank(v):
-    if v is None:
-        return True
-    if isinstance(v, float) and math.isnan(v):
-        return True
-    return str(v).strip() == ''
+def find_header(grid):
+    """Scan the first 20 rows for the row that maps the most columns."""
+    best_row, best_map, best_hits = -1, {}, 0
+    for i, row in enumerate(grid[:20]):
+        colmap, hits = {}, 0
+        for j, cell in enumerate(row):
+            key = _match_header(cell)
+            if key and key not in colmap:
+                colmap[key] = j
+                hits += 1
+        if hits > best_hits and ('ref' in colmap or 'amount' in colmap or ('debit' in colmap and 'credit' in colmap)):
+            best_row, best_map, best_hits = i, colmap, hits
+    return best_row, best_map
 
+def _infer_columns(grid, start):
+    """No usable header: vote per column on data shape."""
+    from collections import Counter
+    votes = {'date': Counter(), 'ref': Counter(), 'amount': Counter()}
+    rows = [r for r in grid[start:start + 40] if any(c not in (None, '') for c in r)]
+    width = max((len(r) for r in rows), default=0)
+    for r in rows:
+        for j in range(width):
+            c = r[j] if j < len(r) else None
+            if c in (None, ''):
+                continue
+            iso, _ = parse_date(c)
+            if iso:
+                votes['date'][j] += 1
+            if looks_like_ref(c):
+                votes['ref'][j] += 1
+            if parse_amount(c) is not None and not iso:
+                votes['amount'][j] += 1
+    colmap = {}
+    for key in ('date', 'ref'):
+        if votes[key]:
+            colmap[key] = votes[key].most_common(1)[0][0]
+    if votes['amount']:
+        for j, _ in sorted(votes['amount'].items(), key=lambda kv: -kv[1]):
+            if j != colmap.get('ref') and j != colmap.get('date'):
+                colmap['amount'] = j
+                break
+    return colmap
 
-def normalize_header(h):
-    return re.sub(r'\s+', ' ', ('' if h is None else str(h)).strip().lower())
+def parse_grid(grid, reader_meta=None):
+    reader_meta = reader_meta or {}
+    grid = [list(r) for r in grid if r is not None]
+    header_row, colmap = find_header(grid)
+    inferred = False
+    if header_row < 0 or ('amount' not in colmap and not ('debit' in colmap and 'credit' in colmap)):
+        inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0)
+        if 'amount' in inferred_map:
+            inferred = True
+            for k, v in inferred_map.items():
+                colmap.setdefault(k, v)
+            if header_row < 0:
+                header_row = -1
+    start = header_row + 1
 
+    def cell(row, key):
+        j = colmap.get(key, -1)
+        return row[j] if 0 <= j < len(row) else None
 
-def find_col(headers, keys):
-    norm = [normalize_header(h) for h in headers]
-    for k in keys:
-        for idx, h in enumerate(norm):
-            if h == k:
-                return idx
-    for k in keys:
-        for idx, h in enumerate(norm):
-            if k in h:
-                return idx
-    return -1
-
-
-def parse_amount(v):
-    if _is_blank(v):
-        return 0.0
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip()
-    if s == '' or s == '-':
-        return 0.0
-    neg = False
-    if re.match(r'^\(.*\)$', s):
-        neg = True
-        s = s[1:-1]
-    s = re.sub(r'[^0-9.\-]', '', s)
-    try:
-        n = float(s)
-    except ValueError:
-        return 0.0
-    return -abs(n) if neg else n
-
-
-def normalize_ref(ref):
-    return re.sub(r'\s+', '', ('' if ref is None else str(ref)).strip().upper())
-
-
-def format_date(v):
-    if isinstance(v, (datetime, date)):
-        return v.strftime('%d-%m-%Y')
-    if _is_blank(v):
-        return ''
-    return str(v)
-
-
-def sheet_to_records(rows):
-    """rows: list of lists (raw grid, as read from CSV/XLSX)."""
-    if not rows:
-        return {'records': [], 'meta': {}}
-
-    def non_empty_count(row):
-        return sum(1 for c in row if not _is_blank(c))
-
-    header_row_idx = next((i for i, r in enumerate(rows) if non_empty_count(r) >= 2), 0)
-    headers = rows[header_row_idx]
-
-    date_idx = find_col(headers, DATE_KEYS)
-    ref_idx = find_col(headers, REF_KEYS)
-    type_idx = find_col(headers, TYPE_KEYS)
-    debit_idx = find_col(headers, DEBIT_KEYS)
-    credit_idx = find_col(headers, CREDIT_KEYS)
-    amount_idx = find_col(headers, AMOUNT_KEYS)
-
-    def cell(r, idx):
-        if idx == -1 or idx >= len(r):
-            return None
-        return r[idx]
-
-    records = []
-    for i in range(header_row_idx + 1, len(rows)):
-        r = rows[i]
-        if r is None or all(_is_blank(c) for c in r):
+    records, warnings = [], []
+    data_rows = invalid_rows = 0
+    doc_total = None
+    for idx, row in enumerate(grid[start:], start=start):
+        if not any(c not in (None, '') for c in row):
             continue
-
-        ref_raw = cell(r, ref_idx)
-        ref = normalize_ref(ref_raw)
-        if not ref:
+        if is_opening_row(row):
+            warnings.append(f'Row {idx + 1}: opening-balance row skipped')
             continue
-
-        if debit_idx != -1 or credit_idx != -1:
-            d = parse_amount(cell(r, debit_idx))
-            c = parse_amount(cell(r, credit_idx))
-            amount = d - c
-        elif amount_idx != -1:
-            amount = parse_amount(cell(r, amount_idx))
+        if is_total_row(row):
+            amts = [parse_amount(c) for c in row]
+            amts = [a for a in amts if a is not None]
+            if amts:
+                doc_total = amts[-1]
+            continue
+        data_rows += 1
+        # amount
+        if 'debit' in colmap or 'credit' in colmap:
+            deb = parse_amount(cell(row, 'debit')) or 0.0
+            cred = parse_amount(cell(row, 'credit')) or 0.0
+            amount = deb - cred if (deb or cred) else None
         else:
-            amount = 0.0
-
+            amount = parse_amount(cell(row, 'amount'))
+            if amount is None:
+                # column shift (e.g. wrapped type text) — take the right-most
+                # parseable amount that isn't the date or ref cell
+                for j in range(len(row) - 1, -1, -1):
+                    if j in (colmap.get('date'), colmap.get('ref')):
+                        continue
+                    v = parse_amount(row[j])
+                    if v is not None and parse_date(row[j])[0] is None:
+                        amount = v
+                        break
+        # reference
+        raw_ref = cell(row, 'ref')
+        if raw_ref in (None, '') :
+            for c in row:
+                if looks_like_ref(c) and parse_amount(c) is None:
+                    raw_ref = c
+                    break
+        ref = norm_ref(raw_ref)
+        if amount is None or not ref:
+            invalid_rows += 1
+            continue
+        iso, raw_date = parse_date(cell(row, 'date'))
+        ttype = cell(row, 'type')
+        ttype = str(ttype).strip() if ttype not in (None, '') else infer_type(' '.join(str(c) for c in row if c is not None))
         records.append({
             'ref': ref,
-            'refRaw': '' if ref_raw is None else str(ref_raw),
-            'date': format_date(cell(r, date_idx)),
-            'type': '' if _is_blank(cell(r, type_idx)) else str(cell(r, type_idx)),
-            'amount': amount
+            'refRaw': str(raw_ref).strip(),
+            'date': raw_date or (iso or ''),
+            'dateISO': iso,
+            'type': ttype,
+            'amount': round(amount, 2),
+            'row': idx + 1,
         })
 
-    return {
-        'records': records,
-        'meta': {
-            'headerRow': header_row_idx,
-            'totalRows': len(rows),
-            'dateCol': date_idx,
-            'refCol': ref_idx,
-            'typeCol': type_idx,
-            'debitCol': debit_idx,
-            'creditCol': credit_idx,
-            'amountCol': amount_idx,
-        }
+    # ---- confidence -----------------------------------------------------
+    conf = (len(records) / data_rows) if data_rows else 0.0
+    if 'date' not in colmap:
+        conf -= 0.10
+        warnings.append('No date column detected')
+    if inferred:
+        conf -= 0.10
+        warnings.append('Headers not found — columns inferred from data shape')
+    totals_check = None
+    if doc_total is not None and records:
+        s = round(sum(r['amount'] for r in records), 2)
+        ok = abs(s - doc_total) <= max(1.0, abs(doc_total) * 0.001)
+        totals_check = {'documentTotal': doc_total, 'extractedSum': s, 'ok': ok}
+        if ok:
+            conf = min(1.0, conf + 0.05)
+        else:
+            conf -= 0.15
+            warnings.append(f'Extracted sum {s} != document total {doc_total}')
+    if reader_meta.get('scanned'):
+        conf = 0.0
+        warnings.append('PDF appears scanned (no extractable text)')
+    conf = max(0.0, min(1.0, conf))
+
+    meta = {
+        'headerRow': header_row,
+        'totalRows': len(grid),
+        'dateCol': colmap.get('date', -1),
+        'refCol': colmap.get('ref', -1),
+        'typeCol': colmap.get('type', -1),
+        'debitCol': colmap.get('debit', -1),
+        'creditCol': colmap.get('credit', -1),
+        'amountCol': colmap.get('amount', -1),
+        'dataRows': data_rows,
+        'invalidRows': invalid_rows,
+        'confidence': round(conf, 3),
+        'warnings': warnings,
+        'totalsCheck': totals_check,
     }
-
-
-def _read_csv_rows(content: bytes):
-    text = None
-    for encoding in ('utf-8-sig', 'utf-8', 'latin-1'):
-        try:
-            text = content.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
-    if text is None:
-        raise ValueError('Could not decode CSV file (tried utf-8, latin-1).')
-    reader = csv.reader(io.StringIO(text))
-    return [row for row in reader]
-
-
-def _read_excel_rows(content: bytes):
-    try:
-        import openpyxl
-    except ImportError as err:
-        raise ValueError('openpyxl is not installed on the server.') from err
-
-    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-    ws = wb[wb.sheetnames[0]]
-    return [list(row) for row in ws.iter_rows(values_only=True)]
-
-
-def extract_from_bytes(filename: str, content: bytes):
-    ext = filename.lower().rsplit('.', 1)[-1] if filename and '.' in filename else ''
-
-    if ext == 'csv':
-        rows = _read_csv_rows(content)
-    elif ext in ('xlsx', 'xlsm'):
-        rows = _read_excel_rows(content)
-    elif ext == 'xls':
-        raise ValueError(
-            'Legacy .xls format is not supported yet - please save as .xlsx or .csv and re-upload.'
-        )
-    else:
-        raise ValueError(f'Unsupported file type: .{ext or "unknown"}. Supported: .xlsx, .csv')
-
-    return sheet_to_records(rows)
+    meta.update({k: v for k, v in reader_meta.items() if k in ('sheet', 'reader', 'tables', 'textPages', 'scanned')})
+    return records, meta
