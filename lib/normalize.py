@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 
 CURRENCY = re.compile(r'(AED|SAR|USD|EUR|INR|GBP|Dhs?\.?|درهم)', re.I)
-REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*[-/]\d+([-/]\d+)*|(?<![\d.,])0\d{6,}(?![\d.,]))', re.I)
+REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*[-/]\d+([-/]\d+)*|(?<![\d.,])0\d{6,}(?![\d.,])|(?<![\d.,/-])\d{2,4}/\d{2,4}/\d{3,}(?:/\d+)*(?![\d.,])|(?<![\d.,])\d{9,}(?![\d.,]))', re.I)
 
 def parse_amount(val):
     if val is None:
@@ -77,7 +77,22 @@ def norm_ref(val):
 def looks_like_ref(val):
     if val is None:
         return False
-    return bool(REF_HINT.search(str(val)))
+    s = str(val)
+    if parse_date(s)[0] is not None:
+        return False
+    return bool(REF_HINT.search(s))
+
+REF_TYPE_PREFIX = [
+    (re.compile(r'^(CRT|CN|CRN)\b', re.I), 'Credit Note'),
+    (re.compile(r'^(RVT|RCT|RCPT|PMT|PYMT)\b', re.I), 'Payment'),
+    (re.compile(r'^(DBN|DN)\b', re.I), 'Debit Note'),
+]
+
+def type_from_ref(ref):
+    for rx, t in REF_TYPE_PREFIX:
+        if rx.search(str(ref or '')):
+            return t
+    return None
 
 def infer_type(row_text):
     t = row_text.lower()
@@ -91,8 +106,8 @@ def infer_type(row_text):
         return 'Bill'
     return 'Invoice'
 
-TOTAL_ROW = re.compile(r'\b(sub\s*-?\s*total|total|closing\s+balance|balance\s+(c/?f|carried)|grand\s+total|net\s+(balance|total|amount\s+due))\b', re.I)
-OPENING_ROW = re.compile(r'\b(opening\s+balance|balance\s+(b/?f|brought)|bal\s+b/?f)\b', re.I)
+TOTAL_ROW = re.compile(r'\b(sub\s*-?\s*totals?|totals?|closing\s+balance|balance\s+(c/?f|carried)|grand\s+totals?|net\s+(balance|totals?|amount\s+due))\b', re.I)
+OPENING_ROW = re.compile(r'\b(opening\s+balance|balance\s+(b/?f|brought|as\s+(on|at))|bal\s+b/?f)\b', re.I)
 
 def is_total_row(cells):
     return bool(TOTAL_ROW.search(' '.join(str(c) for c in cells if c is not None)))

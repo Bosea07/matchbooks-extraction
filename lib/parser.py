@@ -32,18 +32,38 @@ def _match_header(cell):
                 return key
     return None
 
+def _map_row(row):
+    colmap, hits = {}, 0
+    for j, cell in enumerate(row):
+        key = _match_header(cell)
+        if key and key not in colmap:
+            colmap[key] = j
+            hits += 1
+    return colmap, hits
+
 def find_header(grid):
-    best_row, best_map, best_hits = -1, {}, 0
+    """Scan the first 20 rows; also try merging each row with the next
+    (two-line headers like DOCUMENT/DATE + DOCUMENT/NUMBER)."""
+    best = (-1, {}, 0, 1)  # row, map, hits, span
     for i, row in enumerate(grid[:20]):
-        colmap, hits = {}, 0
-        for j, cell in enumerate(row):
-            key = _match_header(cell)
-            if key and key not in colmap:
-                colmap[key] = j
-                hits += 1
-        if hits > best_hits and ('ref' in colmap or 'amount' in colmap or ('debit' in colmap and 'credit' in colmap)):
-            best_row, best_map, best_hits = i, colmap, hits
-    return best_row, best_map
+        candidates = [(row, 1)]
+        if i + 1 < len(grid) and grid[i + 1]:
+            nxt = grid[i + 1]
+            width = max(len(row), len(nxt))
+            merged = []
+            for j in range(width):
+                a = row[j] if j < len(row) else None
+                b = nxt[j] if j < len(nxt) else None
+                merged.append(((str(a) + ' ' if a else '') + (str(b) if b else '')).strip() or None)
+            candidates.append((merged, 2))
+        for cand, span in candidates:
+            colmap, hits = _map_row(cand)
+            usable = 'ref' in colmap or 'amount' in colmap or ('debit' in colmap and 'credit' in colmap)
+            if usable and hits > best[2]:
+                best = (i, colmap, hits, span)
+    row, colmap, hits, span = best
+    return (row + span - 1 if row >= 0 else -1), colmap
+
 
 def _infer_columns(grid, start, known=None):
     known = known or {}
@@ -118,6 +138,8 @@ def parse_grid(grid, reader_meta=None):
             deb = parse_amount(cell(row, 'debit')) or 0.0
             cred = parse_amount(cell(row, 'credit')) or 0.0
             amount = deb - cred if (deb or cred) else None
+            if amount is None and 'amount' in colmap:
+                amount = parse_amount(cell(row, 'amount'))
         else:
             amount = parse_amount(cell(row, 'amount'))
             if amount is None:
@@ -142,6 +164,13 @@ def parse_grid(grid, reader_meta=None):
                 if looks_like_ref(c) and parse_amount(c) is None:
                     raw_ref = c
                     break
+        if raw_ref not in (None, ''):
+            s_ref = str(raw_ref)
+            if (' ' in s_ref.strip() or '\n' in s_ref) :
+                from .normalize import REF_HINT
+                mm = REF_HINT.search(s_ref)
+                if mm:
+                    raw_ref = mm.group(0)
         ref = norm_ref(raw_ref)
         if amount is None or not ref:
             invalid_rows += 1
@@ -149,6 +178,13 @@ def parse_grid(grid, reader_meta=None):
         iso, raw_date = parse_date(cell(row, 'date'))
         ttype = cell(row, 'type')
         ttype = str(ttype).strip() if ttype not in (None, '') else infer_type(' '.join(str(c) for c in row if c is not None))
+        from .normalize import type_from_ref
+        pref_type = type_from_ref(ref)
+        if pref_type:
+            ttype = pref_type
+        if ttype in ('Credit Note', 'Payment') and amount is not None and amount > 0 \
+                and not (parse_amount(cell(row, 'credit')) or 0):
+            amount = -amount
         records.append({
             'ref': ref, 'refRaw': str(raw_ref).strip(),
             'date': raw_date or (iso or ''), 'dateISO': iso,
