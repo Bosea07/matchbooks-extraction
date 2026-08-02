@@ -17,6 +17,7 @@ Return ONLY a JSON object, no prose, exactly this shape:
 Rules:
 - amount: positive for invoices/debits, negative for credit notes and payments.
 - Skip opening-balance rows, subtotal rows and the closing-total row (report the total in documentTotal instead).
+- If the same transactions repeat on continuation pages, list each transaction once.
 - ref: keep the vendor's reference exactly as written.
 - Do not invent rows. If a value is unreadable, omit that row rather than guessing."""
 

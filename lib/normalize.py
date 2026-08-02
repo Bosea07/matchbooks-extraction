@@ -1,13 +1,10 @@
-"""Normalization layer — dates, amounts, references, transaction types.
-The accuracy core: every reader feeds raw cells through these."""
 import re
 from datetime import datetime, timedelta
 
 CURRENCY = re.compile(r'(AED|SAR|USD|EUR|INR|GBP|Dhs?\.?|درهم)', re.I)
-REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*[-/]\d+([-/]\d+)*)', re.I)
+REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*[-/]\d+([-/]\d+)*|(?<![\d.,])0\d{6,}(?![\d.,]))', re.I)
 
 def parse_amount(val):
-    """'1,234.50' | '(500)' | 'AED 1.2' | '1234.50 DR' | 500.0 -> float | None"""
     if val is None:
         return None
     if isinstance(val, (int, float)) and not isinstance(val, bool):
@@ -24,7 +21,7 @@ def parse_amount(val):
             neg = not neg
         s = s[:m.start()]
     s = CURRENCY.sub('', s)
-    s = s.replace(',', '').replace(' ', '').replace(' ', '').strip()
+    s = s.replace(',', '').replace(' ', '').replace(' ', '').strip()
     if s.startswith('-'):
         neg, s = not neg, s[1:]
     if not s:
@@ -50,8 +47,6 @@ _DATE_PATTERNS = [
 ]
 
 def parse_date(val):
-    """Returns (iso_string, raw_string) or (None, raw). Handles datetimes,
-    Excel serials and the common written formats. DD/MM assumed over MM/DD (UAE)."""
     if val is None:
         return None, ''
     if isinstance(val, datetime):
@@ -60,7 +55,7 @@ def parse_date(val):
     if not raw:
         return None, raw
     if isinstance(val, (int, float)) and not isinstance(val, bool) and 20000 < float(val) < 60000:
-        try:  # Excel serial
+        try:
             d = datetime(1899, 12, 30) + timedelta(days=float(val))
             return d.strftime('%Y-%m-%d'), raw
         except Exception:
@@ -75,11 +70,9 @@ def parse_date(val):
     return None, raw
 
 def norm_ref(val):
-    """Canonical reference: uppercase, no whitespace, strip trailing punctuation."""
     if val is None:
         return ''
-    s = re.sub(r'\s+', '', str(val)).upper().strip('.,;:')
-    return s
+    return re.sub(r'\s+', '', str(val)).upper().strip('.,;:')
 
 def looks_like_ref(val):
     if val is None:
@@ -102,9 +95,7 @@ TOTAL_ROW = re.compile(r'\b(sub\s*-?\s*total|total|closing\s+balance|balance\s+(
 OPENING_ROW = re.compile(r'\b(opening\s+balance|balance\s+(b/?f|brought)|bal\s+b/?f)\b', re.I)
 
 def is_total_row(cells):
-    txt = ' '.join(str(c) for c in cells if c is not None)
-    return bool(TOTAL_ROW.search(txt))
+    return bool(TOTAL_ROW.search(' '.join(str(c) for c in cells if c is not None)))
 
 def is_opening_row(cells):
-    txt = ' '.join(str(c) for c in cells if c is not None)
-    return bool(OPENING_ROW.search(txt))
+    return bool(OPENING_ROW.search(' '.join(str(c) for c in cells if c is not None)))

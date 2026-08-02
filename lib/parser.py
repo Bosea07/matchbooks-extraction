@@ -1,5 +1,3 @@
-"""Grid -> records. Header detection, column mapping, row extraction,
-confidence scoring and the document-totals self-check."""
 import re
 from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
                         infer_type, is_total_row, is_opening_row)
@@ -35,7 +33,6 @@ def _match_header(cell):
     return None
 
 def find_header(grid):
-    """Scan the first 20 rows for the row that maps the most columns."""
     best_row, best_map, best_hits = -1, {}, 0
     for i, row in enumerate(grid[:20]):
         colmap, hits = {}, 0
@@ -48,8 +45,8 @@ def find_header(grid):
             best_row, best_map, best_hits = i, colmap, hits
     return best_row, best_map
 
-def _infer_columns(grid, start):
-    """No usable header: vote per column on data shape."""
+def _infer_columns(grid, start, known=None):
+    known = known or {}
     from collections import Counter
     votes = {'date': Counter(), 'ref': Counter(), 'amount': Counter()}
     rows = [r for r in grid[start:start + 40] if any(c not in (None, '') for c in r)]
@@ -64,15 +61,16 @@ def _infer_columns(grid, start):
                 votes['date'][j] += 1
             if looks_like_ref(c):
                 votes['ref'][j] += 1
-            if parse_amount(c) is not None and not iso:
+            if parse_amount(c) is not None and not iso and not looks_like_ref(c):
                 votes['amount'][j] += 1
-    colmap = {}
+    colmap = dict(known)
     for key in ('date', 'ref'):
-        if votes[key]:
+        if key not in colmap and votes[key]:
             colmap[key] = votes[key].most_common(1)[0][0]
+    used = {v for v in colmap.values()}
     if votes['amount']:
         for j, _ in sorted(votes['amount'].items(), key=lambda kv: -kv[1]):
-            if j != colmap.get('ref') and j != colmap.get('date'):
+            if j not in used:
                 colmap['amount'] = j
                 break
     return colmap
@@ -83,7 +81,7 @@ def parse_grid(grid, reader_meta=None):
     header_row, colmap = find_header(grid)
     inferred = False
     if header_row < 0 or ('amount' not in colmap and not ('debit' in colmap and 'credit' in colmap)):
-        inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0)
+        inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0, known=colmap)
         if 'amount' in inferred_map:
             inferred = True
             for k, v in inferred_map.items():
@@ -111,8 +109,11 @@ def parse_grid(grid, reader_meta=None):
             if amts:
                 doc_total = amts[-1]
             continue
+        has_signal = any(parse_amount(c) is not None for c in row) or \
+                     any(parse_date(c)[0] for c in row if c not in (None, ''))
+        if not has_signal:
+            continue
         data_rows += 1
-        # amount
         if 'debit' in colmap or 'credit' in colmap:
             deb = parse_amount(cell(row, 'debit')) or 0.0
             cred = parse_amount(cell(row, 'credit')) or 0.0
@@ -120,8 +121,6 @@ def parse_grid(grid, reader_meta=None):
         else:
             amount = parse_amount(cell(row, 'amount'))
             if amount is None:
-                # column shift (e.g. wrapped type text) — take the right-most
-                # parseable amount that isn't the date or ref cell
                 for j in range(len(row) - 1, -1, -1):
                     if j in (colmap.get('date'), colmap.get('ref')):
                         continue
@@ -129,9 +128,16 @@ def parse_grid(grid, reader_meta=None):
                     if v is not None and parse_date(row[j])[0] is None:
                         amount = v
                         break
-        # reference
         raw_ref = cell(row, 'ref')
-        if raw_ref in (None, '') :
+        if raw_ref not in (None, '') and parse_amount(raw_ref) is not None \
+                and parse_date(cell(row, 'date'))[0] is None and not looks_like_ref(raw_ref):
+            amts = [parse_amount(c) for c in row]
+            amts = [a for a in amts if a is not None]
+            if amts:
+                doc_total = amts[-1]
+            data_rows -= 1
+            continue
+        if raw_ref in (None, ''):
             for c in row:
                 if looks_like_ref(c) and parse_amount(c) is None:
                     raw_ref = c
@@ -144,16 +150,23 @@ def parse_grid(grid, reader_meta=None):
         ttype = cell(row, 'type')
         ttype = str(ttype).strip() if ttype not in (None, '') else infer_type(' '.join(str(c) for c in row if c is not None))
         records.append({
-            'ref': ref,
-            'refRaw': str(raw_ref).strip(),
-            'date': raw_date or (iso or ''),
-            'dateISO': iso,
-            'type': ttype,
-            'amount': round(amount, 2),
-            'row': idx + 1,
+            'ref': ref, 'refRaw': str(raw_ref).strip(),
+            'date': raw_date or (iso or ''), 'dateISO': iso,
+            'type': ttype, 'amount': round(amount, 2), 'row': idx + 1,
         })
 
-    # ---- confidence -----------------------------------------------------
+    seen, deduped, dropped = set(), [], 0
+    for r in records:
+        key = (r['ref'], r['amount'], r['dateISO'])
+        if key in seen:
+            dropped += 1
+            continue
+        seen.add(key)
+        deduped.append(r)
+    if dropped:
+        warnings.append(f'{dropped} duplicate rows dropped (repeated pages)')
+        data_rows -= dropped
+    records = deduped
     conf = (len(records) / data_rows) if data_rows else 0.0
     if 'date' not in colmap:
         conf -= 0.10
@@ -167,7 +180,7 @@ def parse_grid(grid, reader_meta=None):
         ok = abs(s - doc_total) <= max(1.0, abs(doc_total) * 0.001)
         totals_check = {'documentTotal': doc_total, 'extractedSum': s, 'ok': ok}
         if ok:
-            conf = min(1.0, conf + 0.05)
+            conf = max(conf, 0.9)
         else:
             conf -= 0.15
             warnings.append(f'Extracted sum {s} != document total {doc_total}')
@@ -177,19 +190,12 @@ def parse_grid(grid, reader_meta=None):
     conf = max(0.0, min(1.0, conf))
 
     meta = {
-        'headerRow': header_row,
-        'totalRows': len(grid),
-        'dateCol': colmap.get('date', -1),
-        'refCol': colmap.get('ref', -1),
-        'typeCol': colmap.get('type', -1),
-        'debitCol': colmap.get('debit', -1),
-        'creditCol': colmap.get('credit', -1),
-        'amountCol': colmap.get('amount', -1),
-        'dataRows': data_rows,
-        'invalidRows': invalid_rows,
-        'confidence': round(conf, 3),
-        'warnings': warnings,
-        'totalsCheck': totals_check,
+        'headerRow': header_row, 'totalRows': len(grid),
+        'dateCol': colmap.get('date', -1), 'refCol': colmap.get('ref', -1),
+        'typeCol': colmap.get('type', -1), 'debitCol': colmap.get('debit', -1),
+        'creditCol': colmap.get('credit', -1), 'amountCol': colmap.get('amount', -1),
+        'dataRows': data_rows, 'invalidRows': invalid_rows,
+        'confidence': round(conf, 3), 'warnings': warnings, 'totalsCheck': totals_check,
     }
     meta.update({k: v for k, v in reader_meta.items() if k in ('sheet', 'reader', 'tables', 'textPages', 'scanned')})
     return records, meta

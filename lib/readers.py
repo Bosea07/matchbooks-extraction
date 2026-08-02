@@ -1,4 +1,3 @@
-"""Format readers — every input becomes a grid (list of row-lists) plus reader metadata."""
 import io, csv, re
 
 def read_csv(data: bytes):
@@ -15,14 +14,13 @@ def read_csv(data: bytes):
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
     except csv.Error:
-        class dialect:  # noqa
+        class dialect:
             delimiter = ','
             quotechar = '"'
     rows = [r for r in csv.reader(io.StringIO(text), delimiter=dialect.delimiter, quotechar=getattr(dialect, 'quotechar', '"') or '"')]
     return rows, {'reader': 'csv'}
 
 def _score_sheet(grid):
-    """How table-like is this sheet? numeric cells + row count."""
     from .normalize import parse_amount
     score = 0
     for row in grid[:60]:
@@ -52,7 +50,7 @@ def read_xls(data: bytes):
             row = []
             for c in range(ws.ncols):
                 cell = ws.cell(r, c)
-                if cell.ctype == 3:  # date
+                if cell.ctype == 3:
                     try:
                         import xlrd.xldate as xd
                         row.append(xd.xldate_as_datetime(cell.value, wb.datemode))
@@ -73,7 +71,7 @@ def read_docx(data: bytes):
     for table in doc.tables:
         for row in table.rows:
             grid.append([cell.text.strip() or None for cell in row.cells])
-    if not grid:  # fall back to line parsing of paragraphs
+    if not grid:
         for p in doc.paragraphs:
             line = p.text.strip()
             if line:
@@ -83,8 +81,6 @@ def read_docx(data: bytes):
 _MULTISPACE = re.compile(r'\s{2,}|\t')
 
 def _words_to_rows(words, line_tol=3.0):
-    """Group words into lines by vertical position, then into cells by
-    horizontal gaps — column detection from coordinates, not whitespace."""
     lines = []
     for w in sorted(words, key=lambda w: (round(w['top'], 1), w['x0'])):
         for ln in lines:
@@ -96,7 +92,6 @@ def _words_to_rows(words, line_tol=3.0):
     rows = []
     for ln in lines:
         ws = sorted(ln['words'], key=lambda w: w['x0'])
-        # estimate a character width from the line itself
         widths = [(w['x1'] - w['x0']) / max(len(w['text']), 1) for w in ws]
         cw = sorted(widths)[len(widths) // 2] if widths else 5.0
         gap_thresh = max(cw * 1.8, 7.0)
