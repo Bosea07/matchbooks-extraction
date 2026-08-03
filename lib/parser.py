@@ -47,8 +47,13 @@ def find_header(grid):
     best = (-1, {}, 0, 1)  # row, map, hits, span
     for i, row in enumerate(grid[:20]):
         candidates = [(row, 1)]
-        if i + 1 < len(grid) and grid[i + 1]:
-            nxt = grid[i + 1]
+        nxt = grid[i + 1] if i + 1 < len(grid) and grid[i + 1] else []
+        if nxt:
+            nxt_is_data = any(parse_date(c)[0] for c in nxt if c not in (None, '')) or \
+                          sum(1 for c in nxt if parse_amount(c) is not None) >= 2
+            if nxt_is_data:
+                nxt = []
+        if nxt:
             width = max(len(row), len(nxt))
             merged = []
             for j in range(width):
@@ -163,6 +168,17 @@ def parse_grid(grid, reader_meta=None):
             for c in row:
                 if looks_like_ref(c) and parse_amount(c) is None:
                     raw_ref = c
+                    break
+        if raw_ref in (None, ''):
+            for jj, c in enumerate(row):
+                if jj in (colmap.get('date'), colmap.get('amount'),
+                          colmap.get('debit'), colmap.get('credit')):
+                    continue
+                if c in (None, '') or parse_amount(c) is not None:
+                    continue
+                first = str(c).strip().split('\n')[0].strip().split(' ')[0]
+                if re.fullmatch(r'\d{4,9}', first):
+                    raw_ref = first
                     break
         if raw_ref not in (None, ''):
             s_ref = str(raw_ref)
