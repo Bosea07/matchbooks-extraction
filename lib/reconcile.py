@@ -39,6 +39,13 @@ def _one_typo(a, b):
     return sum(1 for x, y in zip(a, b) if x != y) == 1
 
 
+def _is_synthetic(ref):
+    """A reference the extractor invented for a row that had a valid amount
+    but no readable reference. Such rows carry real money and must be
+    reconciled, but must never match by reference — only by amount/date."""
+    return str(ref or '').startswith('~')
+
+
 def _day(dateiso):
     try:
         y, m, d = str(dateiso)[:10].split('-')
@@ -48,16 +55,24 @@ def _day(dateiso):
 
 
 # ── aggregation ─────────────────────────────────────────────────────────
-def _aggregate(rows):
+def _aggregate(rows, side, dropped):
+    """Aggregate by reference. Rows with no reference are NOT discarded —
+    they are given a unique synthetic key so their value stays in the
+    reconciliation. Only rows with an unusable amount are dropped, and those
+    are counted so the caller can report them."""
     agg = {}
-    for r in rows:
+    for i, r in enumerate(rows):
         ref = str(r.get('ref') or '').strip()
-        if not ref or ref.upper() in ('TOTALS', 'TOTAL'):
+        if ref.upper() in ('TOTALS', 'TOTAL'):
             continue
         try:
             amt = round(float(r.get('amount')), 2)
         except (TypeError, ValueError):
+            dropped.append({'side': side, 'ref': ref,
+                            'amount': r.get('amount'), 'reason': 'unreadable amount'})
             continue
+        if not ref:
+            ref = f'~{side.upper()}{i + 1}'
         e = agg.setdefault(ref, {
             'ref': ref, 'refRaw': r.get('refRaw') or ref, 'amount': 0.0,
             'lines': 0, 'date': r.get('dateISO') or None,
@@ -113,10 +128,15 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     vendor_rows = [r for r in vendor_rows if not _is_payment(r)]
     zoho_rows = [r for r in zoho_rows if not _is_payment(r)]
     pay_pairs = _match_payment_lane(v_pay, z_pay, tolerance, date_window)
-    vm, zm = _aggregate(vendor_rows), _aggregate(zoho_rows)
+    unusable = []
+    vm = _aggregate(vendor_rows, 'vendor', unusable)
+    zm = _aggregate(zoho_rows, 'zoho', unusable)
     results, pairs = [], []          # pairs: (vref, zref, tier, note)
     v_open = set(vm.keys())
     z_open = set(zm.keys())
+    # references the extractor invented — value-matchable, never ref-matchable
+    v_syn = {r for r in v_open if _is_synthetic(r)}
+    z_syn = {r for r in z_open if _is_synthetic(r)}
 
     def pair(vref, zref, tier, note=''):
         pairs.append((vref, zref, tier, note))
@@ -124,8 +144,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         z_open.discard(zref)
 
     # tier 1 — exact normalized ref
-    for vref in sorted(v_open):
-        if vref in z_open:
+    for vref in sorted(v_open - v_syn):
+        if vref in z_open and vref not in z_syn:
             pair(vref, vref, 1)
 
     # tier 2 — relaxed reference forms
@@ -139,16 +159,16 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     for fn, label in ((_alnum, 'alnum'), (_zstrip, 'zero-stripped'), (_digits, 'digits-only')):
         if not v_open or not z_open:
             break
-        zidx = _index(z_open, fn)
-        for vref in sorted(list(v_open)):
+        zidx = _index(z_open - z_syn, fn)
+        for vref in sorted(list(v_open - v_syn)):
             cands = zidx.get(fn(vref), [])
             cands = [c for c in cands if c in z_open]
             if len(cands) == 1:
                 pair(vref, cands[0], 2, f'ref match ({label})')
     # single-typo refs, only when amounts also agree within tolerance
-    for vref in sorted(list(v_open)):
+    for vref in sorted(list(v_open - v_syn)):
         va = _alnum(vref)
-        hits = [z for z in z_open if _one_typo(va, _alnum(z))
+        hits = [z for z in z_open - z_syn if _one_typo(va, _alnum(z))
                 and abs(vm[vref]['amount'] - zm[z]['amount']) <= tolerance]
         if len(hits) == 1:
             pair(vref, hits[0], 2, 'ref match (1-char difference)')
@@ -209,6 +229,14 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         combo_findings = []
 
     # ── build results ───────────────────────────────────────────────────
+    def _label(ref, entry):
+        """Never show a synthetic key to the user — fall back to whatever raw
+        text the row had, or say plainly that there was no reference."""
+        if not _is_synthetic(ref):
+            return ref
+        raw = str(entry.get('refRaw') or '').strip()
+        return raw if raw and not _is_synthetic(raw) else '(no reference)'
+
     matched = amount_diff = 0
     matched_resid = 0.0
     for vref, zref, tier, note in pairs:
@@ -220,8 +248,11 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             matched_resid += diff
         else:
             amount_diff += 1
+        vlab, zlab = _label(vref, v), _label(zref, z)
+        if _is_synthetic(vref) or _is_synthetic(zref):
+            note = (note + ' · ' if note else '') + 'one side had no readable reference'
         results.append({
-            'ref': vref if vref == zref else f'{vref} = {zref}',
+            'ref': vlab if vlab == zlab else f'{vlab} = {zlab}',
             'refRaw': v['refRaw'], 'date': v['dateRaw'] or z['dateRaw'],
             'dateISO': v['date'] or z['date'],
             'type': (v['types'] or z['types'] or ['Invoice'])[0],
@@ -238,16 +269,22 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         matched_resid += f['resid'] if f['direction'].startswith('vendor line') else -f['resid']
     for vref in sorted(v_open):
         v = vm[vref]
-        results.append({'ref': vref, 'refRaw': v['refRaw'], 'date': v['dateRaw'],
+        note = 'missing in our books'
+        if _is_synthetic(vref):
+            note += ' · no readable reference on the statement'
+        results.append({'ref': _label(vref, v), 'refRaw': v['refRaw'], 'date': v['dateRaw'],
                         'dateISO': v['date'], 'type': (v['types'] or ['Invoice'])[0],
                         'vendorAmt': v['amount'], 'zohoAmt': None, 'diff': None,
-                        'status': 'EXTRA_IN_VENDOR', 'tier': 0, 'note': 'missing in our books'})
+                        'status': 'EXTRA_IN_VENDOR', 'tier': 0, 'note': note})
     for zref in sorted(z_open):
         z = zm[zref]
-        results.append({'ref': zref, 'refRaw': z['refRaw'], 'date': z['dateRaw'],
+        note = 'only in our books'
+        if _is_synthetic(zref):
+            note += ' · no readable reference on the statement'
+        results.append({'ref': _label(zref, z), 'refRaw': z['refRaw'], 'date': z['dateRaw'],
                         'dateISO': z['date'], 'type': (z['types'] or ['Invoice'])[0],
                         'vendorAmt': None, 'zohoAmt': z['amount'], 'diff': None,
-                        'status': 'MISSING_IN_VENDOR', 'tier': 0, 'note': 'only in our books'})
+                        'status': 'MISSING_IN_VENDOR', 'tier': 0, 'note': note})
 
     # payment lane results
     v_used = {p[0] for p in pay_pairs}
@@ -308,6 +345,20 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                          if r['status'] == 'AMOUNT_DIFF' and r['vendorAmt'] is not None
                          and r['zohoAmt'] is not None), 2)
 
+    n_syn = len(v_syn) + len(z_syn)
+    syn_notes = []
+    if n_syn:
+        syn_val = round(sum(vm[r]['amount'] for r in v_syn)
+                        - sum(zm[r]['amount'] for r in z_syn), 2)
+        syn_notes.append(
+            f'{n_syn} row(s) had no readable reference (net {syn_val}) — '
+            f'reconciled by amount and date only, verify before posting')
+    if unusable:
+        syn_notes.append(
+            f'{len(unusable)} row(s) dropped with an unreadable amount: ' +
+            ', '.join(f"{u['side']}:{u['ref'] or '(no ref)'}={u['amount']!r}"
+                      for u in unusable[:10]))
+
     summary = {
         'totalReferences': len(results),
         'matched': matched, 'amountDiff': amount_diff,
@@ -317,10 +368,14 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         'amountDiffValue': diff_val,
         'extraInVendorValue': extra_val, 'missingInVendorValue': missing_val,
         'matchedByTier': {str(t): sum(1 for p in pairs if p[2] == t) for t in (1, 2, 3)},
+        'matchedByTierPayments': {str(t): sum(1 for p in pay_pairs if p[2] == t)
+                                  for t in (1, 3)},
         'combosMatched': len(combo_findings),
+        'unreferencedRows': n_syn,
+        'droppedRows': len(unusable),
         'tolerance': tolerance,
         'matchedResidual': round(matched_resid, 2),
-        'findings': [f['note'] for f in combo_findings] + contra_notes,
+        'findings': [f['note'] for f in combo_findings] + contra_notes + syn_notes,
     }
 
     # ── invariants: fail loudly, never silently wrong ───────────────────

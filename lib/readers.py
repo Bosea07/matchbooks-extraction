@@ -112,13 +112,19 @@ def _split_line(line):
         parts = line.strip().split()
     return [p.strip() or None for p in parts]
 
+def _table_has_content(t):
+    """A ruled but empty table — borders drawn, no extractable text — is not a
+    usable table. Accepting one masks a scanned page as a successful read."""
+    return any(str(c).strip() for row in t for c in row if c is not None)
+
+
 def read_pdf(data: bytes):
     import pdfplumber
     grid, used_tables, text_pages = [], 0, 0
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for page in pdf.pages:
             tables = page.extract_tables() or []
-            good = [t for t in tables if t and len(t) >= 2]
+            good = [t for t in tables if t and len(t) >= 2 and _table_has_content(t)]
             if good:
                 used_tables += len(good)
                 for t in good:
@@ -129,7 +135,8 @@ def read_pdf(data: bytes):
                 if words:
                     text_pages += 1
                     grid.extend(_words_to_rows(words))
-    scanned = not grid
+    # a grid of nothing but empty cells is still nothing
+    scanned = not any(c not in (None, '') for row in grid for c in row)
     return grid, {'reader': 'pdf', 'tables': used_tables, 'textPages': text_pages, 'scanned': scanned}
 
 READERS = {

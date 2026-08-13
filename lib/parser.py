@@ -1,6 +1,7 @@
 import re
 from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
-                        infer_type, is_total_row, is_opening_row)
+                        infer_type, is_total_row, is_opening_row,
+                        SCI_NOTATION, unwrap_pdf_breaks)
 
 HEADER_SYNONYMS = {
     'date':   ['date', 'doc date', 'document date', 'txn date', 'transaction date',
@@ -120,7 +121,7 @@ def parse_grid(grid, reader_meta=None):
         return row[j] if 0 <= j < len(row) else None
 
     records, warnings = [], []
-    data_rows = invalid_rows = 0
+    data_rows = invalid_rows = unreferenced = 0
     doc_total = None
     for idx, row in enumerate(grid[start:], start=start):
         if not any(c not in (None, '') for c in row):
@@ -166,7 +167,11 @@ def parse_grid(grid, reader_meta=None):
             continue
         if raw_ref in (None, ''):
             for c in row:
-                if looks_like_ref(c) and parse_amount(c) is None:
+                # a scientific-notation cell (5.00E+15) is a long reference
+                # mangled by Excel, never a real statement amount — accept it
+                # even though parse_amount() can read it as a number
+                if looks_like_ref(c) and (parse_amount(c) is None
+                                          or SCI_NOTATION.match(str(c))):
                     raw_ref = c
                     break
         if raw_ref in (None, ''):
@@ -184,13 +189,29 @@ def parse_grid(grid, reader_meta=None):
             s_ref = str(raw_ref)
             if (' ' in s_ref.strip() or '\n' in s_ref) :
                 from .normalize import REF_HINT
-                mm = REF_HINT.search(s_ref)
+                # PDFs wrap long detail lines mid-reference ("SO-\n0800");
+                # rejoin before looking for a reference token
+                mm = REF_HINT.search(s_ref) or REF_HINT.search(unwrap_pdf_breaks(s_ref))
                 if mm:
                     raw_ref = mm.group(0)
         ref = norm_ref(raw_ref)
-        if amount is None or not ref:
+        if amount is None:
             invalid_rows += 1
             continue
+        if not ref:
+            # A row with a real amount is never discarded just because no
+            # reference token could be found. It gets a synthetic ref so it
+            # still reaches the payment and value lanes, and the caller is
+            # told loudly. Synthetic refs are marked with a leading '~' and
+            # are excluded from reference-based matching downstream.
+            # A ZERO amount with no reference carries no information — that is
+            # a wrapped-text artifact (seen in Bionutri PDFs), not money.
+            if round(amount, 2) == 0.0:
+                invalid_rows += 1
+                continue
+            ref = f'~ROW{idx + 1}'
+            unreferenced += 1
+            raw_ref = raw_ref if raw_ref not in (None, '') else ''
         iso, raw_date = parse_date(cell(row, 'date'))
         ttype = cell(row, 'type')
         ttype = str(ttype).strip() if ttype not in (None, '') else infer_type(' '.join(str(c) for c in row if c is not None))
@@ -226,6 +247,12 @@ def parse_grid(grid, reader_meta=None):
     if inferred:
         conf -= 0.10
         warnings.append('Headers not found — columns inferred from data shape')
+    if unreferenced:
+        conf -= 0.10
+        val = round(sum(r['amount'] for r in records if r['ref'].startswith('~')), 2)
+        warnings.append(
+            f'{unreferenced} row(s) kept without a readable reference '
+            f'(net {val}) — matched by amount only, verify before posting')
     totals_check = None
     if doc_total is not None and records:
         s = round(sum(r['amount'] for r in records), 2)
@@ -247,6 +274,7 @@ def parse_grid(grid, reader_meta=None):
         'typeCol': colmap.get('type', -1), 'debitCol': colmap.get('debit', -1),
         'creditCol': colmap.get('credit', -1), 'amountCol': colmap.get('amount', -1),
         'dataRows': data_rows, 'invalidRows': invalid_rows,
+        'unreferencedRows': unreferenced,
         'confidence': round(conf, 3), 'warnings': warnings, 'totalsCheck': totals_check,
     }
     meta.update({k: v for k, v in reader_meta.items() if k in ('sheet', 'reader', 'tables', 'textPages', 'scanned')})
