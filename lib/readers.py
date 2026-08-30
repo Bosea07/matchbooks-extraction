@@ -147,26 +147,10 @@ READERS = {
     'pdf': read_pdf,
 }
 
-def sniff_kind(data: bytes):
-    """What the bytes actually ARE, regardless of the file name. Exports from
-    accounting systems routinely mislabel formats (Zoho ships XLSX named .xls,
-    or HTML/CSV named .xls), so content wins over extension."""
-    head = data[:8]
-    if head[:4] == b'PK\x03\x04':
-        return 'xlsx'                       # zip container: xlsx/xlsm/docx
-    if head[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
-        return 'ole'                        # legacy Office: real .xls or .doc
-    if head[:5] == b'%PDF-':
-        return 'pdf'
-    sample = data[:4000].lstrip()
-    low = sample[:512].lower()
-    if low.startswith(b'<') or b'<html' in low or b'<table' in low:
-        return 'html'                       # "Excel" export that is really HTML
-    return 'text'                           # csv / tsv / plain
-
-
 def read_html_table(data: bytes):
-    """Statements exported as HTML but named .xls — read every <table> row."""
+    """Statements exported as HTML but named .xls - read every <table> row.
+    Structured markup, so this is a safer parse than a PDF word-grid, but the
+    caller is still told the file was not the format it claimed to be."""
     import re as _re
     text = None
     for enc in ('utf-8-sig', 'utf-8', 'cp1256', 'latin-1'):
@@ -190,35 +174,65 @@ def read_html_table(data: bytes):
             if any(c for c in cells):
                 rows.append(cells)
     if not rows:
-        raise ValueError('No table rows found in the HTML statement')
+        raise ValueError('This file is HTML and contains no readable table. '
+                         'Re-export it as XLSX or CSV.')
     return rows, {'reader': 'html-table', 'tables': len(tables)}
+
+
+READERS['html'] = read_html_table
+
+
+def sniff(data: bytes):
+    """What the bytes actually are, regardless of what the file is called.
+
+    Accounting systems export XLSX under a .xls name, XLS under .xlsx, and CSV
+    under both. Trusting the extension means the right reader is never tried."""
+    if data[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
+        return 'xls'                      # OLE2 compound file
+    if data[:2] == b'PK':
+        head = data[:4000]
+        if b'word/' in head or b'word/document.xml' in data[:20000]:
+            return 'docx'
+        return 'xlsx'                     # zip container — xlsx/xlsm/xltx
+    if data[:5] == b'%PDF-':
+        return 'pdf'
+    if data[:5].lower() in (b'<?xml', b'<html') or data[:15].lower().startswith(b'<table'):
+        return 'html'
+    return None
 
 
 def read_any(filename: str, data: bytes):
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
-    kind = sniff_kind(data)
+    actual = sniff(data)
 
-    # trust the CONTENT first — mislabeled exports are common
-    if kind == 'xlsx':
-        if ext == 'docx' or data[:2000].find(b'word/') != -1:
-            return read_docx(data)
-        return read_xlsx(data)
-    if kind == 'pdf':
-        return read_pdf(data)
-    if kind == 'html':
-        return read_html_table(data)
-    if kind == 'ole':
-        if ext == 'doc':
-            raise ValueError("Legacy .doc files aren't supported — please save the statement "
-                             "as .docx or PDF and re-upload.")
-        return read_xls(data)                       # genuine legacy .xls
-    # plain text: csv/tsv (whatever the extension claims)
-    if ext in ('csv', 'txt', 'tsv', 'xls', 'xlsx', '') or ext not in READERS:
+    if ext == 'doc' and actual != 'docx':
+        raise ValueError("Legacy .doc files aren't supported — please save the statement as .docx or PDF and re-upload.")
+
+    # the bytes win over the name whenever they disagree
+    order = []
+    if actual and actual in READERS:
+        order.append(actual)
+    if ext in READERS and ext not in order:
+        order.append(ext)
+    if not order:
+        if actual is None and ext not in READERS:
+            # no signature and no usable extension — text formats have neither
+            order = ['csv']
+        else:
+            raise ValueError(f"Unsupported file type '.{ext}'. Supported: CSV, XLSX, XLS, PDF, DOCX.")
+
+    last = None
+    for i, kind in enumerate(order):
         try:
-            return read_csv(data)
-        except Exception:
-            pass
-    if ext in READERS:
-        return READERS[ext](data)
-    raise ValueError(f"Unsupported file type '.{ext}'. Supported: CSV, XLSX, XLS "
-                     "(incl. HTML/XLSX exports named .xls), PDF, DOCX.")
+            grid, meta = READERS[kind](data)
+        except Exception as e:
+            last = e
+            # An HTML page is never also a valid spreadsheet - trying the other
+            # readers would only replace a clear diagnosis with a vague one.
+            if kind == 'html':
+                raise
+            continue
+        if i > 0 or (actual and ext and actual != ext and ext in READERS):
+            meta['extensionMismatch'] = f'named .{ext}, read as {kind}'
+        return grid, meta
+    raise ValueError(f'Could not read this file as {" or ".join(order)}: {last}')

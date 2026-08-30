@@ -1,15 +1,18 @@
 import re
 from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
                         infer_type, is_total_row, is_opening_row,
-                        SCI_NOTATION, unwrap_pdf_breaks)
+                        SCI_NOTATION, unwrap_pdf_breaks, canon_type,
+                        ref_candidates, clean_cell)
 
 HEADER_SYNONYMS = {
     'date':   ['date', 'doc date', 'document date', 'txn date', 'transaction date',
                'invoice date', 'bill date', 'posting date', 'entry date'],
     'ref':    ['reference', 'ref', 'ref no', 'ref#', 'reference number', 'invoice', 'invoice no',
                'invoice #', 'inv no', 'bill no', 'bill number', 'document', 'document no', 'doc no',
-               'voucher', 'voucher no', 'number', 'transaction#', 'transaction no', 'particulars ref'],
-    'type':   ['type', 'transaction type', 'doc type', 'document type', 'txn type', 'transaction'],
+               'voucher', 'voucher no', 'voucher number', 'vch no', 'vch number',
+               'number', 'transaction#', 'transaction no', 'particulars ref'],
+    'type':   ['type', 'transaction type', 'doc type', 'document type', 'txn type',
+               'transaction', 'transactions'],
     'debit':  ['debit', 'debits', 'debit amount', 'dr', 'dr amount', 'invoice amount', 'charges'],
     'credit': ['credit', 'credits', 'credit amount', 'cr', 'cr amount', 'payment amount', 'payments'],
     'amount': ['amount', 'amount aed', 'net amount', 'value', 'total', 'total amount',
@@ -185,16 +188,44 @@ def parse_grid(grid, reader_meta=None):
                 if re.fullmatch(r'\d{4,9}', first):
                     raw_ref = first
                     break
+        # A row can carry several identifiers at once, and the two sides of a
+        # reconciliation rarely quote the same one. Keep them all, in priority
+        # order, and keep the references it settles separately.
+        aliases, allocation = [], []
         if raw_ref not in (None, ''):
-            s_ref = str(raw_ref)
-            if (' ' in s_ref.strip() or '\n' in s_ref) :
-                from .normalize import REF_HINT
-                # PDFs wrap long detail lines mid-reference ("SO-\n0800");
-                # rejoin before looking for a reference token
-                mm = REF_HINT.search(s_ref) or REF_HINT.search(unwrap_pdf_breaks(s_ref))
-                if mm:
-                    raw_ref = mm.group(0)
-        ref = norm_ref(raw_ref)
+            s_ref = unwrap_pdf_breaks(str(raw_ref))
+            aliases, allocation = ref_candidates(s_ref)
+            if not aliases:
+                # nothing reference-shaped: accept a short leading label
+                # ("Shortages"), never the whole narration
+                lead = clean_cell(s_ref).strip().split('\n')[0].strip().split('\t')[0].strip()
+                lead = lead.split('  ')[0].strip()
+                # A bare 4-9 digit run in the reference cell of a dated row is
+                # a document number, not money: the total-row guard above has
+                # already removed the rows where a number there IS an amount.
+                # UK suppliers number invoices exactly so ("15195"), and
+                # rejecting them loses the row's identity altogether.
+                numeric_docno = (re.fullmatch(r'\d{4,9}', lead) is not None
+                                 and parse_date(cell(row, 'date'))[0] is not None)
+                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/#-]{2,23}', lead) \
+                        and (parse_amount(lead) is None or numeric_docno):
+                    aliases = [norm_ref(lead)]
+        # sweep the rest of the row for identifiers the reference cell missed
+        if len(aliases) < 2:
+            for jj, c in enumerate(row):
+                if c in (None, '') or jj == colmap.get('ref'):
+                    continue
+                if jj in (colmap.get('date'), colmap.get('amount'),
+                          colmap.get('debit'), colmap.get('credit')):
+                    continue
+                extra_own, extra_alloc = ref_candidates(unwrap_pdf_breaks(str(c)))
+                for t in extra_own:
+                    if t not in aliases:
+                        aliases.append(t)
+                for t in extra_alloc:
+                    if t not in allocation and t not in aliases:
+                        allocation.append(t)
+        ref = aliases[0] if aliases else ''
         if amount is None:
             invalid_rows += 1
             continue
@@ -204,7 +235,7 @@ def parse_grid(grid, reader_meta=None):
             # still reaches the payment and value lanes, and the caller is
             # told loudly. Synthetic refs are marked with a leading '~' and
             # are excluded from reference-based matching downstream.
-            # A ZERO amount with no reference carries no information — that is
+            # A ZERO amount with no reference carries no information - that is
             # a wrapped-text artifact (seen in Bionutri PDFs), not money.
             if round(amount, 2) == 0.0:
                 invalid_rows += 1
@@ -214,7 +245,9 @@ def parse_grid(grid, reader_meta=None):
             raw_ref = raw_ref if raw_ref not in (None, '') else ''
         iso, raw_date = parse_date(cell(row, 'date'))
         ttype = cell(row, 'type')
-        ttype = str(ttype).strip() if ttype not in (None, '') else infer_type(' '.join(str(c) for c in row if c is not None))
+        # a real type column is authoritative; narration is only a fallback
+        ttype = canon_type(ttype) if ttype not in (None, '') else \
+            infer_type(' '.join(str(c) for c in row if c is not None))
         from .normalize import type_from_ref
         pref_type = type_from_ref(ref)
         if pref_type:
@@ -223,7 +256,8 @@ def parse_grid(grid, reader_meta=None):
                 and not (parse_amount(cell(row, 'credit')) or 0):
             amount = -amount
         records.append({
-            'ref': ref, 'refRaw': str(raw_ref).strip(),
+            'ref': ref, 'refAliases': aliases, 'allocationRefs': allocation,
+            'refRaw': clean_cell(raw_ref).strip()[:120],
             'date': raw_date or (iso or ''), 'dateISO': iso,
             'type': ttype, 'amount': round(amount, 2), 'row': idx + 1,
         })

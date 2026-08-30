@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 
 CURRENCY = re.compile(r'(AED|SAR|USD|EUR|INR|GBP|Dhs?\.?|درهم|[£€₹$])', re.I)
-REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*[-/]\d+([-/]\d+)*|(?<![\d.,])\d(?:\.\d+)?[Ee][+-]\d{2,}(?![\d.,])|(?<![\d.,])0\d{6,}(?![\d.,])|(?<![\d.,/-])\d{2,4}/\d{2,4}/\d{3,}(?:/\d+)*(?![\d.,])|(?<![\d.,])\d{9,}(?![\d.,])|(?:INVOICE|INV|BILL|VOUCHER|DOC|REF|NO)\s*(?:NO)?[.#:\s]*\d{3,})', re.I)
+REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*(?:[-/][A-Z]+\d*)*[-/]\d+(?:[-/]\d+)*|(?<![\d.,])\d(?:\.\d+)?[Ee][+-]\d{2,}(?![\d.,])|(?<![\d.,])0\d{6,}(?![\d.,])|(?<![\d.,/-])\d{2,4}/\d{2,4}/\d{3,}(?:/\d+)*(?![\d.,])|(?<![\d.,])\d{9,}(?![\d.,])|(?:INVOICE|INV|BILL|VOUCHER|DOC|REF|NO)\s*(?:NO)?[.#:\s]*\d{3,})', re.I)
 
 def parse_amount(val):
     if val is None:
@@ -71,6 +71,64 @@ def parse_date(val):
 
 SCI_NOTATION = re.compile(r'^\s*\d(?:\.\d+)?[Ee][+-]\d{2,}\s*$')
 
+# Statement exports leak their own encoding artefacts into cell text: Excel writes
+# carriage returns as the literal _x000D_, and Zoho embeds HTML in detail cells.
+_XML_ESCAPE = re.compile(r'_x00[0-9A-Fa-f]{2}_')
+_HTML_BREAK = re.compile(r'</?(?:div|br|p|li|tr|td)[^>]*>', re.I)
+_HTML_TAG = re.compile(r'<[^>]{0,200}>')
+
+def clean_cell(text):
+    """Strip export artefacts so a reference is not carried around with markup
+    or an _x000D_ glued to it."""
+    s = str(text or '')
+    s = _XML_ESCAPE.sub(' ', s)
+    s = _HTML_BREAK.sub('\n', s)
+    s = _HTML_TAG.sub(' ', s)
+    s = s.replace('&amp;', '&').replace('&nbsp;', ' ').replace('&#39;', "'")
+    return s
+
+# A row's own identity ends where its allocation narration begins. "PO0194 …
+# Rs.3,832.40 for payment of INS/25-26/0151" is a credit note called PO0194 that
+# settles INS/25-26/0151 — it is not called INS/25-26/0151.
+ALLOCATION_PHRASE = re.compile(
+    r'\b(?:for|from|against|towards?|adjusted\s+(?:against|with))\s+'
+    r'(?:the\s+)?(?:payment|part[\s-]?payment|invoice|bill|settlement)s?\b'
+    r'|\bon\s+account\s+of\b|\bpayment\s+of\b|\bin\s+excess\s+payments?\b', re.I)
+
+def split_allocation(text):
+    """(own, allocation) — text before the first allocation phrase, and after.
+
+    References in the first part identify this row. References in the second
+    identify other rows it settles; they are useful as links but must never be
+    mistaken for this row's own reference."""
+    s = clean_cell(text)
+    m = ALLOCATION_PHRASE.search(s)
+    if not m:
+        return s, ''
+    return s[:m.start()], s[m.start():]
+
+def ref_candidates(text, limit=6):
+    """(own, allocation) reference tokens found in a cell.
+
+    `own` identifies this row and is what matching may use. Statements routinely
+    carry more than one identifier for the same transaction — a bank reference
+    and a voucher number, a PO number and a credit-note number — and the two
+    sides of a reconciliation rarely quote the same one, so all of them are kept.
+
+    `allocation` names the rows this one settles. It is recorded for audit and
+    never matched on: a credit note that pays down an invoice is not that
+    invoice, and treating it as one silently merges the two."""
+    own_txt, alloc_txt = split_allocation(text)
+    own, alloc = [], []
+    for part, out in ((own_txt, own), (alloc_txt, alloc)):
+        for m in REF_HINT.finditer(part):
+            tok = norm_ref(m.group(0))
+            if tok and tok not in out:
+                out.append(tok)
+                if len(out) >= limit:
+                    break
+    return own, [a for a in alloc if a not in own]
+
 def unwrap_pdf_breaks(text):
     """PDF line-wrapping splits refs after a hyphen/slash ("SO-\n0800").
     Rejoin those so reference patterns can match across the break."""
@@ -100,6 +158,30 @@ def type_from_ref(ref):
         if rx.search(str(ref or '')):
             return t
     return None
+
+_TYPE_CANON = [
+    # returns before sales, so "Sales Return" is not read as a sale
+    (re.compile(r'^(sales?\s*returns?|purchase\s*returns?|returns?)\b', re.I), 'Credit Note'),
+    (re.compile(r'^(payments?\s*made|payments?|receipts?|rcpt|pmt)\b', re.I), 'Payment'),
+    (re.compile(r'^(credits?\s*notes?|credits?|cn|crn)\b', re.I), 'Credit Note'),
+    (re.compile(r'^(debits?\s*notes?|dn)\b', re.I), 'Debit Note'),
+    (re.compile(r'^(bills?)\b', re.I), 'Bill'),
+    (re.compile(r'^(invoices?|inv)\b', re.I), 'Invoice'),
+    (re.compile(r'^(sales?\s*invoices?|tax\s*invoices?|sales?)\b', re.I), 'Invoice'),
+]
+
+def canon_type(value):
+    """Map a statement's own type-column wording onto the vocabulary the rest of
+    the engine and the UI use: 'Payment Made' -> Payment, 'Credits' -> Credit
+    Note. Unrecognised wording passes through untouched rather than being
+    guessed at."""
+    s = str(value or '').strip()
+    if not s:
+        return s
+    for rx, t in _TYPE_CANON:
+        if rx.match(s):
+            return t
+    return s
 
 def infer_type(row_text):
     t = row_text.lower()

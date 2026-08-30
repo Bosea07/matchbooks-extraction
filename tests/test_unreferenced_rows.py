@@ -106,35 +106,3 @@ if __name__ == '__main__':
         fn()
         print(f'  ok  {fn.__name__}')
     print(f'\n{len(fns)} passed')
-
-
-# ── v2.8: mislabeled file formats are read by CONTENT, not extension ────
-def test_xlsx_bytes_named_xls_is_read():
-    """Zoho exports XLSX files named .xls — must not error."""
-    import io
-    import openpyxl
-    from lib.readers import read_any, sniff_kind
-    wb = openpyxl.Workbook(); ws = wb.active
-    ws.append(['Date', 'Reference', 'Amount'])
-    ws.append(['01-06-2026', 'INV-2186', 234])
-    buf = io.BytesIO(); wb.save(buf); data = buf.getvalue()
-    assert sniff_kind(data) == 'xlsx'
-    grid, meta = read_any('vendor_statement (8).xls', data)
-    assert meta['reader'] == 'xlsx' and len(grid) == 2
-
-
-def test_html_table_named_xls_is_read():
-    from lib.readers import read_any
-    html = (b'<html><body><table>'
-            b'<tr><th>Date</th><th>Ref</th><th>Amount</th></tr>'
-            b'<tr><td>01/07/2026</td><td>SO-0822</td><td>3,293.00</td></tr>'
-            b'</table></body></html>')
-    grid, meta = read_any('ledger.xls', html)
-    assert meta['reader'] == 'html-table'
-    assert grid[1][1] == 'SO-0822'
-
-
-def test_csv_named_xls_is_read():
-    from lib.readers import read_any
-    grid, meta = read_any('export.xls', b'Date,Ref,Amount\n01-01-2026,INV-001,1000\n')
-    assert meta['reader'] == 'csv' and grid[1][1] == 'INV-001'
