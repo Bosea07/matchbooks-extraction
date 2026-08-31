@@ -7,17 +7,19 @@ engine: auto (default) | parser | claude | verify
   verify - run BOTH and cross-check; disagreements are flagged, never silent"""
 import datetime, os
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from lib.readers import read_any
 from lib.parser import parse_grid
 from lib import claude_extract
 from lib.reconcile import reconcile as run_reconcile
+from lib.export_xlsx import build_workbook, to_bytes
 
 MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
 CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-app = FastAPI(title='matchbooks-extraction', version='2.9.0')
+app = FastAPI(title='matchbooks-extraction', version='2.10.0')
 app.add_middleware(CORSMiddleware,
                    allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
                    allow_methods=['*'], allow_headers=['*'])
@@ -25,7 +27,7 @@ app.add_middleware(CORSMiddleware,
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'matchbooks-extraction',
-            'version': '2.9.0',
+            'version': '2.10.0',
             'claudeFallback': claude_extract.available(),
             'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
@@ -173,3 +175,54 @@ def reconcile_endpoint(body: ReconcileBody):
             enable_combos=bool(body.enableCombos))
     except AssertionError as e:
         raise HTTPException(500, detail=f'Reconciliation invariant failed: {e}')
+
+
+class ExportBody(ReconcileBody):
+    """Same payload as /reconcile, plus labels for the workbook header.
+
+    `result` may be supplied when the caller has already reconciled, so the
+    export is guaranteed to be the same numbers the user is looking at on
+    screen rather than a second, separately-computed run."""
+    result: Optional[dict] = None
+    vendorName: Optional[str] = None
+    entity: Optional[str] = None
+    period: Optional[str] = None
+    currency: Optional[str] = None
+    vendorCurrency: Optional[str] = None
+    zohoCurrency: Optional[str] = None
+    filename: Optional[str] = None
+
+
+@app.post('/export')
+def export_endpoint(body: ExportBody):
+    """Four tabs: Summary, Zoho Extraction, Vendor SOA Extraction, Mapping."""
+    if not body.vendorTransactions and not body.zohoTransactions:
+        raise HTTPException(400, detail='Both transaction lists are empty')
+    try:
+        result = body.result or run_reconcile(
+            body.vendorTransactions, body.zohoTransactions,
+            tolerance=body.tolerance if body.tolerance is not None else 1.0,
+            date_window=body.dateWindow if body.dateWindow is not None else 7,
+            enable_combos=bool(body.enableCombos))
+        if not isinstance(result, dict) or 'results' not in result:
+            raise HTTPException(400, detail="'result' must be a /reconcile response")
+        wb = build_workbook(
+            body.vendorTransactions, body.zohoTransactions, result,
+            {'vendorName': body.vendorName, 'entity': body.entity,
+             'period': body.period, 'currency': body.currency,
+             'vendorCurrency': body.vendorCurrency, 'zohoCurrency': body.zohoCurrency,
+             'engineVersion': app.version})
+        data = to_bytes(wb)
+    except AssertionError as e:
+        raise HTTPException(500, detail=f'Reconciliation invariant failed: {e}')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail=f'Export failed: {e}')
+
+    safe = ''.join(c for c in (body.filename or 'Reconciliation')
+                   if c.isalnum() or c in ' -_')[:80].strip() or 'Reconciliation'
+    return Response(
+        content=data,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{safe}.xlsx"'})

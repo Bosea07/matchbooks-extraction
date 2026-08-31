@@ -397,6 +397,7 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                 f'{fx_rate:,.2f} — investigate')
         results.append({
             'ref': vlab if vlab == zlab else f'{vlab} = {zlab}',
+            'vendorRef': vlab, 'zohoRef': zlab, 'lane': 'reference',
             'refRaw': v['refRaw'], 'date': v['dateRaw'] or z['dateRaw'],
             'dateISO': v['date'] or z['date'],
             'type': (v['types'] or z['types'] or ['Invoice'])[0],
@@ -418,7 +419,9 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         note = 'missing in our books'
         if _is_synthetic(vref):
             note += ' · no readable reference on the statement'
-        results.append({'ref': _label(vref, v), 'refRaw': v['refRaw'], 'date': v['dateRaw'],
+        results.append({'ref': _label(vref, v), 'vendorRef': _label(vref, v),
+                        'zohoRef': None, 'lane': 'reference',
+                        'refRaw': v['refRaw'], 'date': v['dateRaw'],
                         'dateISO': v['date'], 'type': (v['types'] or ['Invoice'])[0],
                         'vendorAmt': v['amount'], 'zohoAmt': None, 'diff': None,
                         'status': 'EXTRA_IN_VENDOR', 'tier': 0, 'note': note})
@@ -427,7 +430,9 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         note = 'only in our books'
         if _is_synthetic(zref):
             note += ' · no readable reference on the statement'
-        results.append({'ref': _label(zref, z), 'refRaw': z['refRaw'], 'date': z['dateRaw'],
+        results.append({'ref': _label(zref, z), 'vendorRef': None,
+                        'zohoRef': _label(zref, z), 'lane': 'reference',
+                        'refRaw': z['refRaw'], 'date': z['dateRaw'],
                         'dateISO': z['date'], 'type': (z['types'] or ['Invoice'])[0],
                         'vendorAmt': None, 'zohoAmt': z['amount'], 'diff': None,
                         'status': 'MISSING_IN_VENDOR', 'tier': 0, 'note': note})
@@ -451,7 +456,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                 f'implied rate {implied:,.2f} is {dev:+.1%} off the statement rate '
                 f'{fx_rate:,.2f} — investigate')
         ref = v['ref'] if v['ref'] == z['ref'] else f"{v['ref']} = {z['ref']}"
-        results.append({'ref': ref, 'refRaw': v.get('refRaw') or v['ref'],
+        results.append({'ref': ref, 'vendorRef': v['ref'], 'zohoRef': z['ref'],
+                        'lane': 'payment', 'refRaw': v.get('refRaw') or v['ref'],
                         'date': v.get('date') or z.get('date') or '',
                         'dateISO': v.get('dateISO') or z.get('dateISO'),
                         'type': 'Payment', 'vendorAmt': v['amount'], 'zohoAmt': z['amount'],
@@ -461,14 +467,16 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                         'tier': tier, 'note': note})
     for i, v in enumerate(v_pay):
         if i not in v_used:
-            results.append({'ref': v['ref'], 'refRaw': v.get('refRaw') or v['ref'],
+            results.append({'ref': v['ref'], 'vendorRef': v['ref'], 'zohoRef': None,
+                            'lane': 'payment', 'refRaw': v.get('refRaw') or v['ref'],
                             'date': v.get('date') or '', 'dateISO': v.get('dateISO'),
                             'type': 'Payment', 'vendorAmt': v['amount'], 'zohoAmt': None,
                             'diff': None, 'status': 'EXTRA_IN_VENDOR', 'tier': 0,
                             'note': 'payment on vendor SOA not found in our books'})
     for j, z in enumerate(z_pay):
         if j not in z_used:
-            results.append({'ref': z['ref'], 'refRaw': z.get('refRaw') or z['ref'],
+            results.append({'ref': z['ref'], 'vendorRef': None, 'zohoRef': z['ref'],
+                            'lane': 'payment', 'refRaw': z.get('refRaw') or z['ref'],
                             'date': z.get('date') or '', 'dateISO': z.get('dateISO'),
                             'type': 'Payment', 'vendorAmt': None, 'zohoAmt': z['amount'],
                             'diff': None, 'status': 'MISSING_IN_VENDOR', 'tier': 0,
