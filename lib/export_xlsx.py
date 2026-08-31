@@ -20,7 +20,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import FormulaRule
 
-FONT = 'Arial'
+FONT = 'Verdana'
 HDR_FILL = PatternFill('solid', fgColor='12263A')
 BAND_FILL = PatternFill('solid', fgColor='EEF2F5')
 OK_FILL = PatternFill('solid', fgColor='E3F1EA')
