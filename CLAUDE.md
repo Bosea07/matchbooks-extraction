@@ -66,14 +66,37 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.11.0, UNVERIFIED
+## Current state — v2.12.0
 
-Written but never executed: the sandbox that runs tests was broken for a week
-by Windows KB5124008 (Plan9 share failure, also breaks WSL). **Run the four
-test files before pushing.** `tests/test_allocation_and_signs.py` is new, 14
-tests, stdlib only.
+**60 tests passing** across five files. Run `run_tests.cmd` from the repo root
+(`.\run_tests.cmd` in PowerShell — it will not run without the `.\`).
 
-v2.11 fixes, all from one bad reconciliation (Reverse Parcel Services LLC):
+`tools/diagnose.py <file>` dumps the raw grid, the detected header and column
+map, every warning, and the parsed records. When a file extracts badly, run
+that first: it shows the failure where it happens rather than three stages
+later in the reconciliation.
+
+### v2.12 — SAP Business One ledgers
+
+An export of six transactions totalled 5,127,459.22 when its true movement was
+−1,748,166.00. The amount column was `Deb./Cred. (LC)`, unrecognised, so the
+parser inferred one and chose `Cumulative Balance (LC)` — reading the running
+balance as the transaction amount. The output looked entirely plausible.
+
+1. `_match_header` strips currency brackets, so `Deb./Cred. (LC)` → `deb cred`
+   (now an amount synonym), `Amount (AED)` → `amount`
+2. **Balance columns are barred from being the amount** — anything headed
+   *cumulative*, *running*, *closing*, *opening* or *balance*. Enforced in both
+   column inference *and* the last-numeric-cell fallback. Missing the second
+   one let an account-header row keep the opening balance as a transaction
+3. A space inside a document number (`RC 15400071`, `IN 1300027`) is allowed in
+   the reference column only — widening `REF_HINT` globally would pull
+   "of 15400071" out of narration
+4. `infer_type` matches plurals. `\bpayment\b` does not match "Payments", so
+   every row of `Incoming Payments - C000124` was typed as an invoice and kept
+   a positive sign
+
+### v2.11 — Reverse Parcel Services LLC
 
 1. `readers.py` — allocation fragments folded into their parent row
 2. `parser.py` — sign invariant on debit-type rows
@@ -100,6 +123,10 @@ Sample documents are not in the repo; ask before assuming a path.
 - **Reverse Parcel** (v2.11 target) — expect **21 matched**, one amount
   difference of **2,558.00** on invoice 5617, no DN/335 false match, and a
   stated payment gap of **25,068.02**. Net difference ties to **54,567.14**.
+- **SAP B1 GL (Kuwa Food Supplements)** — 6 records, 2 of them negative,
+  summing to **−1,748,166.00**. Opening 1,929,045.86 less that movement gives
+  180,879.86, the closing balance printed in the file. Covered by
+  `tests/test_sap_ledger.py` with the real rows, so the tie-out is asserted.
 
 ## Traps
 

@@ -19,16 +19,30 @@ HEADER_SYNONYMS = {
                'transaction', 'transactions'],
     'debit':  ['debit', 'debits', 'debit amount', 'dr', 'dr amount', 'invoice amount', 'charges'],
     'credit': ['credit', 'credits', 'credit amount', 'cr', 'cr amount', 'payment amount', 'payments'],
+    # 'deb cred' is SAP Business One's single signed-amount column
+    # ("Deb./Cred. (LC)") — debits positive, credits negative, one column.
     'amount': ['amount', 'amount aed', 'net amount', 'value', 'total', 'total amount',
-               'amount (aed)', 'aed', 'gross amount', 'balance amount'],
+               'amount (aed)', 'aed', 'gross amount', 'balance amount',
+               'deb cred', 'debit credit', 'dr cr', 'signed amount'],
     'desc':   ['description', 'narration', 'details', 'particulars', 'memo', 'remarks'],
 }
+
+# A running balance is not a transaction amount. An SAP B1 export puts
+# "Deb./Cred. (LC)" next to "Cumulative Balance (LC)", and reading the second
+# one turns every row into the account balance at that point — a ledger of six
+# transactions summed to 5.1m instead of its true -1.75m movement. Nothing
+# about the output looks wrong, which is what makes it dangerous.
+_BALANCE_COL = re.compile(r'\b(cumulative|running|closing|opening)\b|\bbalance\b', re.I)
+
 
 def _match_header(cell):
     if cell is None:
         return None
     s = re.sub(r'[^a-z#() ]', ' ', str(cell).lower()).strip()
-    s = re.sub(r'\s+', ' ', s)
+    # Currency qualifiers are noise: "Amount (AED)", "Deb./Cred. (LC)",
+    # "Total (FC)" all mean what they say without the bracket.
+    s = re.sub(r'\s*\([^)]*\)', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
     if not s:
         return None
     for key, names in HEADER_SYNONYMS.items():
@@ -78,12 +92,20 @@ def find_header(grid):
     return (row + span - 1 if row >= 0 else -1), colmap
 
 
-def _infer_columns(grid, start, known=None):
+def _infer_columns(grid, start, known=None, header_row=None):
     known = known or {}
     from collections import Counter
     votes = {'date': Counter(), 'ref': Counter(), 'amount': Counter()}
     rows = [r for r in grid[start:start + 40] if any(c not in (None, '') for c in r)]
     width = max((len(r) for r in rows), default=0)
+    # Columns the header names as a balance are barred from becoming the
+    # amount, however numeric they look. A running balance is numeric in every
+    # row, so on votes alone it wins — and produces a total that is nonsense.
+    banned = set()
+    if header_row is not None and 0 <= header_row < len(grid):
+        for j, c in enumerate(grid[header_row]):
+            if c and _BALANCE_COL.search(str(c)):
+                banned.add(j)
     for r in rows:
         for j in range(width):
             c = r[j] if j < len(r) else None
@@ -103,7 +125,7 @@ def _infer_columns(grid, start, known=None):
     used = {v for v in colmap.values()}
     if votes['amount']:
         for j, _ in sorted(votes['amount'].items(), key=lambda kv: -kv[1]):
-            if j not in used:
+            if j not in used and j not in banned:
                 colmap['amount'] = j
                 break
     return colmap
@@ -114,7 +136,8 @@ def parse_grid(grid, reader_meta=None):
     header_row, colmap = find_header(grid)
     inferred = False
     if header_row < 0 or ('amount' not in colmap and not ('debit' in colmap and 'credit' in colmap)):
-        inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0, known=colmap)
+        inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0,
+                                      known=colmap, header_row=header_row)
         if 'amount' in inferred_map:
             inferred = True
             for k, v in inferred_map.items():
@@ -126,6 +149,16 @@ def parse_grid(grid, reader_meta=None):
     def cell(row, key):
         j = colmap.get(key, -1)
         return row[j] if 0 <= j < len(row) else None
+
+    # Columns the header calls a balance, barred everywhere — not just from
+    # inference. The last-numeric-cell fallback below would otherwise pick the
+    # running balance for any row whose amount cell is blank, which is exactly
+    # what an account-header row looks like.
+    balance_cols = set()
+    if 0 <= header_row < len(grid):
+        for j, c in enumerate(grid[header_row]):
+            if c and _BALANCE_COL.search(str(c)):
+                balance_cols.add(j)
 
     records, warnings = [], []
     data_rows = invalid_rows = unreferenced = 0
@@ -158,7 +191,7 @@ def parse_grid(grid, reader_meta=None):
             amount = parse_amount(cell(row, 'amount'))
             if amount is None:
                 for j in range(len(row) - 1, -1, -1):
-                    if j in (colmap.get('date'), colmap.get('ref')):
+                    if j in (colmap.get('date'), colmap.get('ref')) or j in balance_cols:
                         continue
                     v = parse_amount(row[j])
                     if v is not None and parse_date(row[j])[0] is None:
@@ -212,8 +245,14 @@ def parse_grid(grid, reader_meta=None):
                 # rejecting them loses the row's identity altogether.
                 numeric_docno = (re.fullmatch(r'\d{4,9}', lead) is not None
                                  and parse_date(cell(row, 'date'))[0] is not None)
-                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/#-]{2,23}', lead) \
-                        and (parse_amount(lead) is None or numeric_docno):
+                # Some systems put a space inside the document number — SAP B1
+                # writes "RC 15400071" and "IN 1300027". Allow one, but only
+                # here, where the cell is already known to be the reference
+                # column; loosening REF_HINT globally would start matching
+                # "of 15400071" out of narration.
+                shaped = re.fullmatch(
+                    r'[A-Za-z0-9][A-Za-z0-9._/#-]{1,15}(?: [A-Za-z0-9._/#-]{2,15})?', lead)
+                if shaped and (parse_amount(lead) is None or numeric_docno):
                     aliases = [norm_ref(lead)]
         # sweep the rest of the row for identifiers the reference cell missed
         if len(aliases) < 2:

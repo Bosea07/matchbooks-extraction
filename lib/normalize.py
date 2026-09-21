@@ -188,14 +188,21 @@ def canon_type(value):
     return s
 
 def infer_type(row_text):
+    """Guess a row's type from its narration, used only when the statement has
+    no type column of its own.
+
+    Plurals matter more than they look: SAP B1 writes "Incoming Payments -
+    C000124", and `\\bpayment\\b` does not match "Payments". Every payment in
+    the ledger was then typed as an invoice and kept a positive sign."""
     t = row_text.lower()
-    if re.search(r'\bpayment\b|\bpmt\b|\breceipt\b|\btrf\b|\btransfer\b', t):
+    if re.search(r'\bpayments?\b|\bpmt\b|\breceipts?\b|\btrf\b|\btransfers?\b'
+                 r'|\bincoming\s+payments?\b|\bremittances?\b', t):
         return 'Payment'
-    if re.search(r'credit\s*note|\bcn\b|\bcrn\b', t):
+    if re.search(r'credits?\s*notes?|\bcn\b|\bcrn\b|\bsales?\s*returns?\b', t):
         return 'Credit Note'
-    if re.search(r'debit\s*note|\bdn\b', t):
+    if re.search(r'debits?\s*notes?|\bdn\b', t):
         return 'Debit Note'
-    if re.search(r'\bbill\b', t):
+    if re.search(r'\bbills?\b', t):
         return 'Bill'
     return 'Invoice'
 
