@@ -5,7 +5,7 @@ engine: auto (default) | parser | claude | verify
   parser - deterministic only
   claude - Claude-first (vendor SOAs); parser as fallback if Claude unavailable/fails
   verify - run BOTH and cross-check; disagreements are flagged, never silent"""
-import datetime, os
+import datetime, os, re
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,7 @@ from lib.export_xlsx import build_workbook, to_bytes
 MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
 CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-app = FastAPI(title='matchbooks-extraction', version='2.10.0')
+app = FastAPI(title='matchbooks-extraction', version='2.11.0')
 app.add_middleware(CORSMiddleware,
                    allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
                    allow_methods=['*'], allow_headers=['*'])
@@ -27,7 +27,7 @@ app.add_middleware(CORSMiddleware,
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'matchbooks-extraction',
-            'version': '2.10.0',
+            'version': '2.11.0',
             'claudeFallback': claude_extract.available(),
             'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
@@ -161,20 +161,58 @@ class ReconcileBody(BaseModel):
     dateWindow: Optional[int] = None
     enableCombos: Optional[bool] = True
 
+def _counterparty_warning(vendor_rows, zoho_rows):
+    """Are these two documents even about the same vendor?
+
+    Reconciling a statement from one supplier against the ledger of another
+    produces a tidy-looking result in which every line is an exception — the
+    most misleading output this service can emit, because nothing about it
+    looks broken. Two documents for the same account always share at least a
+    few reference tokens. Zero overlap across dozens of rows does not happen
+    by chance."""
+    def tokens(rows):
+        out = set()
+        for r in rows:
+            for t in (r.get('refAliases') or [r.get('ref')]):
+                t = str(t or '').strip().upper()
+                if t and not t.startswith('~') and len(t) >= 4:
+                    out.add(t)
+                    for part in re.split(r'[-/]', t):
+                        if len(part) >= 4:
+                            out.add(part)
+        return out
+    v, z = tokens(vendor_rows), tokens(zoho_rows)
+    if len(v) < 5 or len(z) < 5:
+        return None                      # too little to judge
+    if v & z:
+        return None
+    return ('The two files share no reference token at all across '
+            f'{len(vendor_rows)} vendor row(s) and {len(zoho_rows)} of our own. '
+            'That normally means they are statements for two DIFFERENT '
+            'counterparties, in which case every line below is an exception '
+            'and the reconciliation is meaningless. Check the vendor on each '
+            'document before using this result.')
+
+
 @app.post('/reconcile')
 def reconcile_endpoint(body: ReconcileBody):
     if not isinstance(body.vendorTransactions, list) or not isinstance(body.zohoTransactions, list):
         raise HTTPException(400, detail='vendorTransactions and zohoTransactions must be arrays')
     if not body.vendorTransactions and not body.zohoTransactions:
         raise HTTPException(400, detail='Both transaction lists are empty')
+    warn = _counterparty_warning(body.vendorTransactions, body.zohoTransactions)
     try:
-        return run_reconcile(
+        result = run_reconcile(
             body.vendorTransactions, body.zohoTransactions,
             tolerance=body.tolerance if body.tolerance is not None else 1.0,
             date_window=body.dateWindow if body.dateWindow is not None else 7,
             enable_combos=bool(body.enableCombos))
     except AssertionError as e:
         raise HTTPException(500, detail=f'Reconciliation invariant failed: {e}')
+    if warn:
+        result.setdefault('summary', {})['counterpartyMismatch'] = True
+        result['summary'].setdefault('findings', []).insert(0, warn)
+    return result
 
 
 class ExportBody(ReconcileBody):

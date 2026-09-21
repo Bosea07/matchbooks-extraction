@@ -2,7 +2,11 @@ import re
 from datetime import datetime, timedelta
 
 CURRENCY = re.compile(r'(AED|SAR|USD|EUR|INR|GBP|Dhs?\.?|درهم|[£€₹$])', re.I)
-REF_HINT = re.compile(r'([A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|[A-Z]+\d*(?:[-/][A-Z]+\d*)*[-/]\d+(?:[-/]\d+)*|(?<![\d.,])\d(?:\.\d+)?[Ee][+-]\d{2,}(?![\d.,])|(?<![\d.,])0\d{6,}(?![\d.,])|(?<![\d.,/-])\d{2,4}/\d{2,4}/\d{3,}(?:/\d+)*(?![\d.,])|(?<![\d.,])\d{9,}(?![\d.,])|(?:INVOICE|INV|BILL|VOUCHER|DOC|REF|NO)\s*(?:NO)?[.#:\s]*\d{3,})', re.I)
+# Order matters: alternation is first-match-wins, so the multi-segment form is
+# tried BEFORE the short one. Otherwise "CODR2026/HO/105" matches the short
+# alternative at "CODR2026" and the rest of the reference is thrown away —
+# which silently turns eight distinct payment vouchers into one.
+REF_HINT = re.compile(r'([A-Z]+\d*(?:[-/][A-Z]+\d*)*[-/]\d+(?:[-/]\d+)*|[A-Z]{2,}[-/#]?\d{3,}|\d{8}-\d{4,}|GKVW#\S+|PHUB\d+|(?<![\d.,])\d(?:\.\d+)?[Ee][+-]\d{2,}(?![\d.,])|(?<![\d.,])0\d{6,}(?![\d.,])|(?<![\d.,/-])\d{2,4}/\d{2,4}/\d{3,}(?:/\d+)*(?![\d.,])|(?<![\d.,])\d{9,}(?![\d.,])|(?:INVOICE|INV|BILL|VOUCHER|DOC|REF|NO)\s*(?:NO)?[.#:\s]*\d{3,})', re.I)
 
 def parse_amount(val):
     if val is None:

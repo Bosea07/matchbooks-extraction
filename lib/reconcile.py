@@ -27,7 +27,14 @@ RATE_TOL_DEFAULT = 0.10  # ±10% around the implied rate, when the two sides
 # agree?" is then answered strictly, and any gap is reported as a difference.
 # Sharing one tolerance turns a single small discrepancy into two enormous
 # phantom exceptions, one on each side.
-PAIR_TOL_PCT_DEFAULT = 0.02
+# 2% was too generous: it paired DN/HO/2026/335 (1,806.99) with invoice 5439
+# (1,771.00) — two unrelated documents 35.99 apart — which both invented a
+# discrepancy and orphaned a genuine match. 0.5% keeps the bank-charge case
+# working while refusing pairs that only look close because they are large.
+PAIR_TOL_PCT_DEFAULT = 0.005
+# Above this absolute gap, closeness alone is not evidence: the two rows must
+# also agree on date before they may be paired.
+PAIR_ABS_NEEDS_DATE = 25.0
 NEAREST_HINT_PCT = 0.25   # how far apart two unmatched rows can be and
                           # still be worth pointing at each other
 SCALE_BAND = (0.80, 1.25)  # median ratio inside this band = same currency
@@ -305,10 +312,18 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             exact = bool(cands)
             if not cands:
                 cands = [z for z in z_open if _pairable(v['amount'], zm[z]['amount'])]
+                # A gap of tens of dirhams is not itself evidence that two rows
+                # are the same document. Beyond PAIR_ABS_NEEDS_DATE the dates
+                # must agree too, or the pair is refused.
+                vd0 = _day(v['date'])
+                cands = [z for z in cands
+                         if abs(abs(v['amount']) - abs(zm[z]['amount'])) <= PAIR_ABS_NEEDS_DATE
+                         or (vd0 and _day(zm[z]['date'])
+                             and abs(_day(zm[z]['date']) - vd0) <= date_window)]
             same_sign = [z for z in cands if (zm[z]['amount'] >= 0) == (v['amount'] >= 0)]
             cands = same_sign or cands
             hit_note = ('amount match (unique value)' if exact
-                        else f'near-amount match (within {pair_tolerance_pct:.0%})')
+                        else f'near-amount match (within {pair_tolerance_pct:.1%})')
         if not cands:
             continue
         if len(cands) == 1:
@@ -553,6 +568,25 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             ', '.join(f"{u['side']}:{u['ref'] or '(no ref)'}={u['amount']!r}"
                       for u in unusable[:10]))
 
+    # ── payment lane totals ──────────────────────────────────────────────
+    # The two sides often share no payment reference at all — one numbers its
+    # receipts, the other its vouchers — so every payment lands unmatched and
+    # the reader is left adding a dozen orphan rows by hand. State the
+    # aggregate instead: that single number is usually the finding.
+    v_pay_total = round(sum(p['amount'] for p in v_pay), 2)
+    z_pay_total = round(sum(p['amount'] for p in z_pay), 2)
+    pay_gap = round(v_pay_total - z_pay_total, 2)
+    pay_unmatched = len(v_pay) + len(z_pay) - 2 * len(pay_pairs)
+    if pay_unmatched and abs(pay_gap) > tolerance:
+        syn_notes.insert(0, (
+            f'Payments do not agree: the vendor statement shows {abs(v_pay_total):,.2f} '
+            f'across {len(v_pay)} payment(s), our books show {abs(z_pay_total):,.2f} across '
+            f'{len(z_pay)} — a gap of {abs(pay_gap):,.2f}. '
+            + ('None of the payment references appear on both sides, so none could be '
+               'matched individually; the gap is the figure to chase, not the row count.'
+               if not pay_pairs else
+               f'{len(pay_pairs)} payment(s) matched by reference, {pay_unmatched} did not.')))
+
     summary = {
         'totalReferences': len(results),
         'matched': matched, 'amountDiff': amount_diff,
@@ -567,6 +601,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         'combosMatched': len(combo_findings),
         'unreferencedRows': n_syn,
         'droppedRows': len(unusable),
+        'vendorPaymentTotal': v_pay_total, 'zohoPaymentTotal': z_pay_total,
+        'paymentGap': pay_gap, 'paymentsUnmatched': pay_unmatched,
         'currencyMismatch': bool(fx_rate),
         'netDifferenceMeaningful': not fx_rate,
         'impliedRate': round(fx_rate, 4) if fx_rate else None,

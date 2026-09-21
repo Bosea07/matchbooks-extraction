@@ -1,0 +1,327 @@
+entity,vendor,cur,d30,d60,d90,d120,d150,above,total,diff,flags
+VALEO WELLBEING TECHNOLOGIES FZCO,Unilabs Middle East LLC,445977.0,412951.0,433753.0,255224.0,0,0,0,1547905.0,-220561,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Honasa Consumer Limited,0,0,0,317784.0,0,646913.0,17487.0,982184.0,463791.9,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Meta Platforms Ireland Limited,0,439207.0,374907.0,0,0,0,0,814114.0,439206.7,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Muscat Pharmaceutical Trading LLC,0,79802.0,163591.0,171905.0,133194.0,10025.0,140221.0,698738.0,182440.1,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Al Borg Medical Laboratories,0,71715.0,99304.0,148892.0,107694.0,57898.0,194078.0,679581.0,71715.3,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Google,0,222427.0,402398.0,9947.0,0,0,0,634773.0,0.2,
+KUWA FOOD SUPPLEMENTS TRADING LLC,VIVANDI GENERAL TRADING L.L.C,0,21783.0,332178.0,100707.0,0,55826.0,0,510494.0,168894.1,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Heavenly Secrets Private Limited,0,34767.0,0,106435.0,0,0,226525.0,367727.0,-148765.7,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,LIFENITY GENOMIC LABORATORY DMCC,0,41330.0,37646.0,49199.0,41720.0,28504.0,42000.0,240398.0,-11657.4,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Zakha home healthcare Center LLC,0,43667.0,28022.0,33532.0,1212.0,2627.0,117095.0,226154.0,26002.1,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Crystel,83829.0,0,42092.0,0,43818.0,39406.0,0,209145.0,40816.5,
+VALEO WELLBEING TECHNOLOGIES FZCO,WizRocket Inc,33277.0,42594.0,51415.0,0,17051.0,23012.0,32007.0,199356.0,-6,aged_over_150
+Valeo Health Information Technology Company,MARYAM JABER BINT HASSAN AL-QAISI,0,0,88752.0,0,84223.0,19587.0,0,192561.0,-4064,
+Valeo Health Information Technology Company,Wareed Medical Laboratories,0,25605.0,29119.0,32768.0,31360.0,124.0,65961.0,184936.0,22242.4,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Vital Neutraceuticals PVT.LTD,0,0,0,0,135238.0,0,24036.0,159274.0,-0.1,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,NUTRITIONALAB PRIVATE LIMITED (2026),0,0,0,0,154862.0,0,0,154862.0,154862,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Sundex Trading LLC,0,0,0,0,0,0,154338.0,154338.0,0.5,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,ULTRAHUMAN HEALTHCARE - SOLE PROPRIETORSHIP L.L.C.,0,0,0,0,0,0,146957.0,146957.0,0,aged_over_150
+Valeo Health Information Technology Company,Dawaa Al Gharbyah Company,0,0,0,144489.0,0,0,0,144489.0,144489,
+VALEO WELLBEING TECHNOLOGIES FZCO,Vesta Care,0,0,54035.0,36504.0,0,3154.0,3126.0,96819.0,0.45,aged_over_150
+Valeo Health Information Technology Company,Lamyaa For Logistics Services,0,3942.0,29370.0,58426.0,0,0,0,91737.0,35528.51,duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,BLINDSPOT HEALTH FZCO,0,0,0,91086.0,0,0,0,91087.0,0.46,same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,QLABS CLINICAL LABORATORY CO LLC,0,10442.0,11120.0,16336.0,14047.0,14678.0,23836.0,90459.0,10442.59,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Herbal Max Healthcare pvt ltd,0,0,0,25530.0,0,36546.0,22911.0,84987.0,-12445.08,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Nutrigold,0,0,0,1237.0,3487.0,11605.0,67347.0,83676.0,5331.68,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Rite Trading L.L.C,0,45837.0,16859.0,0,1.0,10688.0,4862.0,78246.0,45837.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,DMETCO BAYTI,0,7452.0,3683.0,31934.0,0,0,31573.0,74642.0,4568.8,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Prime Medical Center,0,0,25409.0,23887.0,22885.0,0,0,72180.0,-10834.67,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Upturn Consultancy LLC,0,0,13991.0,0,0,12993.0,36268.0,63252.0,-0.34,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,One Call Doctor Home Health Care Center,0,7719.0,11751.0,16055.0,19219.0,3731.0,0,58476.0,0.06,
+KUWA FOOD SUPPLEMENTS TRADING LLC,HEALTHYHEY FOODS LLP,0,0,49910.0,0,0,0,0,49910.0,0.1,
+KUWA FOOD SUPPLEMENTS TRADING LLC,SMSA Express Transportation LLC,0,251.0,29044.0,0,1014.0,0,14362.0,44671.0,-2274.65,same_name_multiple_entities;aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,TRANSCORP INTL LOGISTICS LLC,0,0,10580.0,10771.0,7589.0,0,13678.0,42618.0,-0.14,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Zafar,0,0,0,0,0,0,42000.0,42000.0,0,aged_over_150
+Valeo Health Information Technology Company,medlab Laboratories - Saudi Arabia,0,8171.0,8505.0,4470.0,0,17129.0,0,38275.0,7535.24,
+VALEO WELLBEING TECHNOLOGIES FZCO,Boom Connecting Care,0,5439.0,0,10768.0,4478.0,7019.0,8597.0,36302.0,5439.5,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Inco International FZCO,0,0,0,0,0,0,35323.0,35323.0,-0.4,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Attryb Tech Private Limited,0,0,0,0,3673.0,3673.0,25658.0,33003.0,-1.81,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Salwaty Home Healthcare LLC,0,0,0,0,0,0,30704.0,30704.0,-0.12,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,UNICARE MEDICAL CENTER LLC,0,0,0,30684.0,1.0,0,0,30685.0,30684.42,
+VALEO WELLBEING TECHNOLOGIES FZCO,Nexx Home Healthcare Center LLC,0,0,2566.0,9661.0,17874.0,0,0,30101.0,0.36,
+VALEO WELLBEING TECHNOLOGIES FZCO,Tabby L.L.C,0,26170.0,0,0,0,0,0,26170.0,25402.61,same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,Awraq Printing Press FZ LLC,0,0,9062.0,3686.0,5292.0,4932.0,2538.0,25509.0,5775.31,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Care One Polyclinic LLC,0,0,0,0,0,0,23037.0,23037.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Pointblanc Media FZ LLE,0,0,0,0,0,0,21966.0,21966.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Maqsam â€¢ a product of Labotic OÃœ,0,21742.0,0,0,0,0,0,21742.0,21742,encoding_corruption
+KUWA FOOD SUPPLEMENTS TRADING LLC,SLICK ORGANICS PRIVATE LIMITED 1,0,0,0,0,0,21687.0,0,21687.0,-3175.18,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Wellbene Life Sciences FZCO,0,0,0,0,0,0,21484.0,21484.0,-0.35,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Almostaqbal Labs,0,0,0,0,0,0,20127.0,20127.0,-0.36,aged_over_150
+Valeo Health Information Technology Company,Trendyol Arabia For Trading LLC,0,0,0,1178.0,3076.0,0,15122.0,19376.0,-409.1,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,WAREED HEALTH COMPANY,0,0,0,0,0,0,18486.0,18486.0,-0.14,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Al Farabi Medical Center,0,0,0,0,0,0,18334.0,18334.0,0.62,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,CorX Homecare by Physioworld Healthcare LLC,0,0,9241.0,8962.0,0,0,0,18203.0,-0.37,
+Valeo Health Information Technology Company,Nifas Medical Services Company,0,0,0,0,0,0,18067.0,18067.0,-380.99,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Shipa Delivery Services L.L.C - KSA,0,0,0,0,0,0,17906.0,17906.0,3.32,same_name_multiple_entities;aged_over_150
+Valeo Health Information Technology Company,TAMMAM AL ILAJ MEDICAL COMPANY,0,0,0,0,0,17309.0,0,17309.0,-365.55,
+VALEO WELLBEING TECHNOLOGIES FZCO,WHITE AND BLACK LIGHTS P&E SER LLC,0,0,0,0,0,0,15750.0,15750.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Magical Hands Building Cleaning Services,0,0,15510.0,0,0,0,0,15510.0,15509.85,
+KUWA FOOD SUPPLEMENTS TRADING LLC,TGHCO Health Support Services Pvt. Ltd.,0,0,0,0,0,0,15114.0,15114.0,-1418.8,same_name_multiple_entities;aged_over_150
+Valeo Health Information Technology Company,ZENOS HEALTH,0,0,0,0,0,0,14690.0,14690.0,-310,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,SMSA Express Transportation LLC,40.0,0,1938.0,48.0,567.0,10947.0,0,13541.0,-33404.65,same_name_multiple_entities
+KUWA FOOD SUPPLEMENTS TRADING LLC,Aramex Emirates LLC,0,0,188.0,1945.0,11301.0,0,0,13435.0,158.29,same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,Dio Life Home Health Care Co,0,0,0,12669.0,0,0,266.0,12935.0,-0.17,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Vlado Sky Enterprise Pvt Ltd,0,0,0,0,4999.0,0,7798.0,12797.0,-1141.6,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Seha Pharmaceuticals Trading L.L.C,0,0,0,0,350.0,0,11788.0,12138.0,0.05,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Biosytech Medical,0,0,0,2646.0,945.0,630.0,7208.0,11429.0,0.15,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Zenith,0,0,2715.0,0,0,8286.0,0,11001.0,1501.93,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Tabby L.L.C,0,10657.0,0,0,0,0,0,10657.0,9889.61,same_name_multiple_entities
+KUWA FOOD SUPPLEMENTS TRADING LLC,Inmart Commerce Private Limited,0,0,5862.0,0,0,4401.0,0,10264.0,5862.51,duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,UPAKARMA AYURVEDA PRIVATE LIMITED,0,0,0,6945.0,3146.0,0,0,10091.0,-1478.04,
+VALEO WELLBEING TECHNOLOGIES FZCO,TRC Pamco Middle East Auditing & Accounting L.L.C,0,0,0,0,0,0,9923.0,9923.0,0.5,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,SIDRA TUL MUNTAHA TALAL,0,0,0,0,0,0,9764.0,9764.0,0.5,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Ashdown General Trading LLC,0,0,6820.0,0,0,2600.0,0,9420.0,0.19,same_name_multiple_entities
+KUWA FOOD SUPPLEMENTS TRADING LLC,Wholesome Wellness,0,0,0,0,0,0,9193.0,9193.0,-0.19,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,T R C PAMCO MIDDLE EAST CONSULTANCY L.L.C,0,0,0,0,0,0,8663.0,8663.0,0.5,same_name_multiple_entities;aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,BIO PHARMA MEDICAL TRADING CO. LLC,0,0,0,1638.0,2048.0,0,4914.0,8600.0,0.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Cambridge Nutraceuticals Ltd,0,0,0,0,0,0,8564.0,8564.0,1103.41,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Aldeyafa Government Transaction Center,0,0,4386.0,170.0,3111.0,0,0,7668.0,7668,
+VALEO WELLBEING TECHNOLOGIES FZCO,AVOCADO ADVERTISING REQUISITES TRADING LLC,0,0,3885.0,3757.0,0,0,0,7642.0,1207.49,
+VALEO WELLBEING TECHNOLOGIES FZCO,Switch Bowling,0,0,0,7500.0,0,0,0,7500.0,0,
+Valeo Health Information Technology Company,PostEx for Information Technology,0,0,0,0,0,0,7349.0,7349.0,-154.75,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Saudi Postal Services Co,0,0,0,0,0,0,6718.0,6718.0,2.62,aged_over_150
+Valeo Health Information Technology Company,OPAL RESIDENCE,0,0,0,4138.0,0,0,2571.0,6708.0,-142,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,ANAYA MEDICAL CENTER LLC,0,0,0,0,0,0,6605.0,6605.0,-0.03,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,SANIMED INTERNATIONAL LAB AND MANAGEMENT L.L.C.,0,1539.0,1856.0,0,0,756.0,1898.0,6048.0,1538.73,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Caro's Nutrition,0,0,0,0,0,5000.0,1000.0,6000.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Bionutri Ltd,0,0,3387.0,2267.0,0,0,0,5654.0,347.99,same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,Amazon Vendor Central KSA,0,0,0,0,0,0,5458.0,5458.0,0.96,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,MH Enterprises L.L.C,0,0,0,0,0,0,5394.0,5394.0,-0.2,same_name_multiple_entities;aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,BEYOND FZE,0,0,0,5140.0,0,0,0,5140.0,0.25,same_name_multiple_entities
+Valeo Health Information Technology Company,Al Rajhi Banking & Investment Corporation,0,0,0,0,4847.0,0,0,4847.0,-101.87,
+VALEO WELLBEING TECHNOLOGIES FZCO,Jelena Markovic,0,0,0,0,0,0,4829.0,4829.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,The Genius brand,0,0,0,0,0,0,4803.0,4803.0,0.17,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,ADROIT BIOMED LTD.,0,0,0,0,0,0,4593.0,4593.0,-673.07,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,MEDIA MANTRA CONSULTANCY - FZCO,0,0,0,0,0,4200.0,0,4200.0,0,
+KUWA FOOD SUPPLEMENTS TRADING LLC,UNICOMMERCE ESOLUTIONS LIMITED,0,4141.0,0,0,0,0,0,4141.0,4141,
+Valeo Health Information Technology Company,Delta Medical Laboratories,0,0,0,141.0,0,1746.0,2231.0,4118.0,-86.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Moe Maktabi,0,0,0,0,0,0,3927.0,3927.0,0,aged_over_150
+Valeo Health Information Technology Company,Vitality Medical Services Company,0,1109.0,0,1351.0,0,0,1351.0,3812.0,-80,aged_over_150
+Valeo Health Information Technology Company,ALHAYA HOME MEDICAL SERVICES CENTER,0,0,450.0,225.0,0,0,2961.0,3637.0,153.48,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Swavy App LTD UK,0,0,0,0,0,0,3227.0,3227.0,-0.06,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,MANDYINTL FOR MARKETING & PR,0,0,0,0,0,3000.0,0,3000.0,0,
+VALEO WELLBEING TECHNOLOGIES FZCO,PORTL,0,0,0,0,0,0,3000.0,3000.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Desert Barbell Sports Club LLC,0,0,0,0,0,0,3000.0,3000.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,ICUBESWIRE TECHNOLOGIES FZ- LLC,0,0,0,0,0,0,2940.0,2940.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Retail Fiesta Pvt Ltd,0,0,0,0,0,0,2837.0,2837.0,-278.35,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Bosta,0,0,0,0,0,0,2753.0,2753.0,0.42,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,CAREEM NETWORKS GENERAL TRADING L.L.C,0,0,0,871.0,837.0,109.0,811.0,2627.0,-0.33,aged_over_150
+Valeo Health Information Technology Company,Markaz Asus Al Anaya For Medical (Home Care),0,0,0,0,0,0,2485.0,2485.0,-52.08,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Nojoom,0,0,0,0,0,0,2434.0,2434.0,0.32,aged_over_150
+Shifa Home Health Care LLC,T R C PAMCO MIDDLE EAST CONSULTANCY L.L.C,0,0,0,0,0,0,2205.0,2205.0,-6457.5,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,The GYM,0,0,0,450.0,0,0,1670.0,2120.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Agiomix,0,0,681.0,1363.0,0,0,0,2045.0,0.45,
+VALEO WELLBEING TECHNOLOGIES FZCO,Amazon Marketplace - Australia,0,0,0,0,0,0,1663.0,1663.0,-0.05,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,To Be With Mom,0,0,0,0,700.0,900.0,0,1600.0,0,
+VALEO WELLBEING TECHNOLOGIES FZCO,Healthy Nation Medical Center Dubai,0,1575.0,0,0,0,0,0,1575.0,1575,
+VALEO WELLBEING TECHNOLOGIES FZCO,Med Wing,0,0,0,0,0,0,1540.0,1540.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Tazmin Mohamed,0,0,0,0,0,1500.0,0,1500.0,0,
+KUWA FOOD SUPPLEMENTS TRADING LLC,Med,0,0,0,0,0,0,1485.0,1485.0,0,aged_over_150
+Valeo Health Information Technology Company,Doctify Limited,0,0,0,0,0,0,1469.0,1469.0,-31,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,United Arab Emirates Ministry of Health & Prevention,0,0,0,0,0,0,1453.0,1453.0,-0.3,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Ashdown General Trading LLC,0,0,0,0,0,0,1438.0,1438.0,-7981.81,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Yandex Europe AG (Public Company),0,0,0,0,0,0,1352.0,1352.0,-0.29,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Body Cupid Pvt Ltd,0,0,0,0,0,0,1292.0,1292.0,-188.91,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Dina assaad,0,0,0,0,0,0,1263.0,1263.0,0,aged_over_150
+Valeo Health Information Technology Company,Danya Holistic Health,0,0,0,0,0,147.0,1028.0,1175.0,-25,aged_over_150
+Valeo Health Information Technology Company,Azzah Saad Almutairi,0,0,0,0,0,0,1175.0,1175.0,-25,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Lauren Information Technologies FZCO,0,0,0,0,1112.0,0,0,1112.0,-0.22,
+VALEO WELLBEING TECHNOLOGIES FZCO,Dext Software Limited,0,1111.0,0,0,0,0,0,1111.0,0.07,same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,QAM HEALTH CARE,0,0,0,0,0,0,1103.0,1103.0,0.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Joy Marie Somers,0,0,0,0,0,0,1095.0,1095.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Dext Software Limited,0,0,0,0,0,0,1078.0,1078.0,-32.93,same_name_multiple_entities;aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,NANDITA,0,0,0,0,0,0,1029.0,1029.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,POLYCHROME ELECTRONICS TRADING LLC,0,0,0,0,0,0,1008.0,1008.0,0,aged_over_150
+Valeo Health Information Technology Company,ROZ SHIPPING CORPORA,0,0,0,0,0,0,956.0,956.0,-19.78,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Easy Healthcare,0,0,0,0,0,935.0,0,935.0,0.5,
+Valeo Health Information Technology Company,SCOSH (Yamam Abdulwhab Abuzinadah Social Company),0,0,0,0,0,0,845.0,845.0,-17.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Vitalwoman Wellness,0,0,0,819.0,0,0,0,819.0,0.28,
+VALEO WELLBEING TECHNOLOGIES FZCO,Aya Chawa,0,0,0,0,0,0,800.0,800.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Dubai Electricity & Water Authority,0,0,0,0,0,0,800.0,800.0,0.14,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Babirus Medical Equipment Trading LLC,0,0,0,0,0,0,788.0,788.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Pharmaceutical Distribition Company,0,0,0,0,0,0,750.0,750.0,0,aged_over_150
+Valeo Health Information Technology Company,Azza Mohammed Tahir,0,0,0,0,0,0,686.0,686.0,-14,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,SLICK ORGANICS PRIVATE LIMITED (Arata),0,0,0,0,0,0,672.0,672.0,-94.25,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,CREATIVE VISION GENERAL TRADING L.L.C,0,0,0,0,0,0,636.0,636.0,0.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Trunative F & B Pvt Ltd,0,0,0,0,0,0,614.0,614.0,-98.82,aged_over_150
+Saha Trading Company,Trendyol Arabia For Trading LLC,0,0,546.0,59.0,0,0,0,605.0,-19180.1,same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,TishTash Marketing & Public Relations,0,0,0,0,0,0,600.0,600.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,PROJECT AGORA LTD,0,0,0,0,0,0,589.0,589.0,0.4,aged_over_150
+Valeo Health Information Technology Company,The Longevity Clinic,0,0,0,0,0,0,529.0,529.0,-11,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,AMIR WISSAM MAAN,0,0,0,0,0,0,500.0,500.0,0,aged_over_150
+Valeo Health Information Technology Company,Khdmat Navas Llraayt Altbyt Co,0,0,0,0,0,0,394.0,394.0,-8.5,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Careem Platform (S),0,0,0,0,0,0,392.0,392.0,0.39,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Care and Cure Home Healthcare,0,0,0,0,0,0,357.0,357.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,FLIP XPRESS DELIVERY SERVICES LLC,0,0,0,0,0,0,331.0,331.0,-0.45,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,BLINDSPOT HEALTH FZCO,0,0,0,0,0,0,272.0,272.0,-90814.54,same_name_multiple_entities;aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Namshi General Trading L.L.C,0,0,0,0,0,0,261.0,261.0,-0.39,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,ZOHO Corporation Pte Ltd,0,0,0,0,0,0,238.0,238.0,-0.35,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Mary Kellner,0,0,0,0,0,0,210.0,210.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Hormone wellness,0,0,0,0,0,0,200.0,200.0,0,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Proficiency Healthcare Diagnostics,0,0,0,0,0,0,200.0,200.0,0.5,aged_over_150
+Valeo Health Information Technology Company,AVMLabs W L L,0,0,0,0,0,0,189.0,189.0,-3.73,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Elissa Mezher,0,0,0,0,0,0,184.0,184.0,0.37,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Amazon Marketplace - Valeo UAE,0,0,0,0,0,0,180.0,180.0,-0.14,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,Zakia Rahman,0,0,0,0,152.0,0,0,152.0,0,
+VALEO WELLBEING TECHNOLOGIES FZCO,Zein Nimri,0,0,0,0,0,142.0,0,142.0,0,
+Valeo Health Information Technology Company,Dr. FaryalLuhar NaturopathicDoctor,0,0,0,0,0,0,78.0,78.0,-2,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Nyssa Beauty L.L.C,0,0,0,0,0,0,75.0,75.0,0,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Life Pharmacy LLC,0,0,0,0,0,0,70.0,70.0,0.2,aged_over_150
+KUWA FOOD SUPPLEMENTS TRADING LLC,Evogen Lifestyle Pvt. Ltd,0,0,0,0,0,0,65.0,65.0,-1802.59,aged_over_150
+VALEO WELLBEING TECHNOLOGIES FZCO,House Of Wellness,0,0,0,0,1.0,0,0,1.0,0.5,
+VALEO WELLBEING TECHNOLOGIES FZCO,Emirates Home Care,0,0,0,0,0,0,0,0.0,-0.4,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,The Healthy Home Technologies FZCO,0,0,0,0,0,0,0,0.0,-0.32,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,THE BRIDGE WELLNESS HUB,0,0,0,0,0,0,0,0.0,-0.01,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,TAKAFUL EMARAT,0,0,0,0,0,0,0,0.0,-0.01,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,AVM Labs LLC (Thyrocare),0,0,0,0,0,0,0,0.0,-0.01,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Galleria Trading LLC,0,0,0,0,0,0,0,0.0,-0.01,zero_balance
+Valeo Health Information Technology Company,UNITRANS,0,0,0,0,0,0,0,0.0,-0.01,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Spinneys Dubai LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,STYLEKOREAN MIDDLE EAST TRADING FZE,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,K-ON COMPANY,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,TAIF&ANWAR DELIVERY SERVICES,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Dubai Store - Kuwa,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Taj Addawa Store,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,SNS excellence Technical Services L.L.C,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,MEHRAKI FOODS AND NU,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Delivery Hero Stores DB LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,NUTRILINK,0,0,0,0,0,0,0,0.0,0,zero_balance;duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,Pep Technologies Private Limited,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,The Fresh Market FZCO,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Goldenflitch Studios Private Limited,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,VPlab SIA,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Fusion Cosmeceutics Pvt Ltd,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,VITAMED LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Mosaic wellness private limited,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Global Healthfit Retail India Private Limited,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,HERBALMAX HEALTHCARE PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Conscious Chemist,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Nimish Srivastava(Ecomedge solutions),0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,LAMA ALDABEEK,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Wellness Ville Private Limited,0,0,0,0,0,0,0,0.0,0,zero_balance;duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,D L P WORLD TRANSPORT AND SHIPPING L.L.C,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Atheer International General Trading LLC FZ,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,THE ROOST ROTISSERIE RESTAURANT LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,GIG Gulf Insurance Company,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,PHARMACORE WELLNESS TRADING L.L.C,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Shams Al Muneer IT Solutions LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,ROZ SHIPPING CORPORA,0,0,0,0,0,0,0,0.0,-975.78,zero_balance;same_name_multiple_entities
+KUWA FOOD SUPPLEMENTS TRADING LLC,Cambridge Nutraceuticals,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,ERA BOTANICS PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Shipa Delivery Services L.L.C - KSA,0,0,0,0,0,0,0,0.0,-17902.68,zero_balance;same_name_multiple_entities
+KUWA FOOD SUPPLEMENTS TRADING LLC,YUMI NUTRITION LTD.,0,0,0,0,0,0,0,0.0,0,zero_balance;duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,Mona Sha,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,DTRIUMPH LOGISTICS INDIA PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,DBW TRADBW TRADING LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,GS1 Emirates,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Jana Baydoun,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,INDO ASIAN CONSULTING SERVICES,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,WIN VISION TECHNICAL SERVICES WORKS LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,UPM WORLD TRADING LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,ODDITY HEALTHCARE PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Zed lifestyle Pvt ltd,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Attryb Tech Private Limited,0,0,0,0,0,0,0,0.0,-33004.81,zero_balance;same_name_multiple_entities
+KUWA FOOD SUPPLEMENTS TRADING LLC,OCEAN PLUS LOGISTICS L.L.C,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,NASRIN POORDARYAEI,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Helios Lifestyle Ltd,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,WELLNESS VILLE PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,0,zero_balance;duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,Etisalat,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Alfa One Drug Store LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,YUMI NUTRITION LTD,0,0,0,0,0,0,0,0.0,0,zero_balance;duplicate_vendor_master
+KUWA FOOD SUPPLEMENTS TRADING LLC,Ghazl Ehab Naser,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Nathalia Beatrice,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Kosher Organics Private Limited,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,T Maini and Associates,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Farzaneh Fathi,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,First Cry,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,IQ Fulfillment,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,KHAZENLY,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,iMile Delivery Services LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Heba Mohamed Ali Sadek,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,Amina Elyousefi,0,0,0,0,0,0,0,0.0,0,zero_balance
+KUWA FOOD SUPPLEMENTS TRADING LLC,TSI Global F.Z.C.,0,0,0,0,0,0,0,0.0,0,zero_balance
+Saha Trading Company,ASRAR CO,0,0,0,0,0,0,0,0.0,0,zero_balance
+Saha Trading Company,Lamyaa for Logistics Services,0,0,0,0,0,0,0,0.0,-56208.49,zero_balance;duplicate_vendor_master
+Saha Trading Company,Haddaq Medical consultancy,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Honasa Consumer Limited,0,0,0,0,0,0,0,0.0,-518392.1,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,Pharmalife import and export co,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,MAHARA HEALTH CARE LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Pure Lab South LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,LINKVIVA,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,CAROLINA VILLALTA WILSON,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Origin Healing,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,BEYOND FZE,0,0,0,0,0,0,0,0.0,-5139.75,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,SNS EXCELLANCE TECHNICAL SRVICES LLC.,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,OMEGA BUSINESS & MANAGEMENT CONSULTANCY FZC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Nayera Magdy,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,EKATERINA SIZOVA,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,CAROL MATTA Marketing Management,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,QuickShip,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Fazaa LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Tia Maria Mascarenhas,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,BIONGEVITY PRECISION HEALTH AND LONGEVITY CLINIC L.L.C,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,ELIE MANSOUR,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Sidra,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,NINO JUFREN DOMINGUE,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,CareZone Home HealthCare LLC,0,0,0,0,0,0,0,0.0,-5095,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Pyramids Health Services LLC-SPC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Forever Finds Fz LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Cosmostake R,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Dubai Insurance Care & Commitment,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Altynbaeva Aliia,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Synergy Concept General Trading LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Reward,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Jamie Richards Nutrition,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Chiara Seidenader,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,OMAR AYOUB NEMRI,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Legal Circle FZC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,INMART COMMERCE PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,-4401.49,zero_balance;duplicate_vendor_master
+VALEO WELLBEING TECHNOLOGIES FZCO,Prime Home Care LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Jackia,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Eat Routes Inc.,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,FedEx Express,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Dubai Electricity & Water Authority,0,0,0,0,0,0,0,0.0,-799.86,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,DNA International Trading LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,GA GLOBAL FZ - LLC,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Motmaen Medical Service Co.,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Black Coat Technologies Pvt Ltd,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Zhongshan MCC Lights,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,FENIX,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,FIVE SPLASH INFOTECH PVT. LTD.,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,ImpresaPro Serviziz,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Aramex Emirates LLC,0,0,0,0,0,0,0,0.0,-13276.71,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,KMH Events Management,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,TGHCO Health Support Services Pvt. Ltd.,0,0,0,0,0,0,0,0.0,-16532.8,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,PLIX - SATIYA NUTRACEUTICALS PVT LTD,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Clara Formations Limited,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Heavenly Secrets Private Limited,0,0,0,0,0,0,0,0.0,-516492.7,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,Prozes Sport Equipment (MegaStar),0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,UGC CONTENT CREATOR,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Bionutri Ltd,0,0,0,0,0,0,0,0.0,-5306.01,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,MBM SPECIALITY MEDICAL CENTER,0,0,0,0,0,0,0,0.0,0,zero_balance
+VALEO WELLBEING TECHNOLOGIES FZCO,Nutri Link,0,0,0,0,0,0,0,0.0,0,zero_balance;duplicate_vendor_master
+VALEO WELLBEING TECHNOLOGIES FZCO,MH Enterprises L.L.C,0,0,0,0,0,0,0,0.0,-5394.2,zero_balance;same_name_multiple_entities
+VALEO WELLBEING TECHNOLOGIES FZCO,MINDPEERS INDIA PRIVATE LIMITED,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Saudi International Trading Co. Ltd,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,SALEHIYA,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Helpful Agency â€“ Riyadh Infinity Care,0,0,0,0,0,0,0,0.0,0,zero_balance;encoding_corruption
+Valeo Health Information Technology Company,Task Outsourcing,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Analytix Arabia for Management Consulting/Ø£Ù†Ø§Ù„ÙŠØªÙƒØ³ Ø§Ù„Ø¹Ø±Ø¨ÙŠØ© Ù„Ù„Ø§Ø³ØªØ´Ø§Ø±Ø§Øª Ø§Ù„Ø¥Ø¯Ø§Ø±ÙŠØ©,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Standard Chartered Al Awsat,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Amazon Vendor Central / Ù…Ø±ÙƒØ² Ø¨Ø§Ø¦Ø¹ÙŠ Ø£Ù…Ø§Ø²ÙˆÙ† (Old),0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Motmaen Medical Service Co. / Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø¤Ù…Ù† Ù„Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ©,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Modern Trading Company,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Hala Health Altab Medical Care,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Amazon Vendor Central - Beauty,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Shadow Production Foundation for Audiovisua/Ù…Ø¤Ø³Ø³Ø© Ø´Ø§Ø¯Ùˆ Ù„Ù„Ø¥Ù†ØªØ§Ø¬ Ø§Ù„Ø³Ù…Ø¹ÙŠ Ø§Ù„Ø¨ØµØ±ÙŠl Production/,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,AL Farabi Medical Labs/Ù…Ø®ØªØ¨Ø±Ø§Øª Ø§Ù„Ù_x0081_Ø§Ø±Ø§Ø¨ÙŠ Ø§Ù„Ø·Ø¨ÙŠØ©,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Click Digital Company (on behalf of Baraa Rajab),0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Aali Alqemam Est.for Contracting,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Smart Basket Pharmaceuticals/Ø³Ù„Ø© Ø§Ù„Ø£Ø¯ÙˆÙŠØ© Ø§Ù„Ø°ÙƒÙŠØ©,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Ruaa Medical Services Co,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Bupa Arabia for Cooperative Insurance Company/Ø´Ø±ÙƒØ© Ø¨ÙˆØ¨Ø§ Ø§Ù„Ø¹Ø±Ø¨ÙŠØ© Ù„Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„ØªØ¹Ø§ÙˆÙ†ÙŠ,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Khalid Mohsen Helal,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,AJ For Logistic Services Company (One Partner),0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Noon Marketplace KSA,0,0,0,0,0,0,0,0.0,0,zero_balance
+Valeo Health Information Technology Company,Fawasl Co. LTD.,0,0,0,0,0,0,0,0.0,0,zero_balance

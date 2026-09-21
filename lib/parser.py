@@ -4,6 +4,10 @@ from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
                         SCI_NOTATION, unwrap_pdf_breaks, canon_type,
                         ref_candidates, clean_cell)
 
+# Types that increase what is owed. A row the statement labels one of these
+# can never carry a negative amount.
+DEBIT_TYPES = ('Bill', 'Invoice', 'Debit Note')
+
 HEADER_SYNONYMS = {
     'date':   ['date', 'doc date', 'document date', 'txn date', 'transaction date',
                'invoice date', 'bill date', 'posting date', 'entry date'],
@@ -125,6 +129,7 @@ def parse_grid(grid, reader_meta=None):
 
     records, warnings = [], []
     data_rows = invalid_rows = unreferenced = 0
+    sign_conflicts = []
     doc_total = None
     for idx, row in enumerate(grid[start:], start=start):
         if not any(c not in (None, '') for c in row):
@@ -255,6 +260,18 @@ def parse_grid(grid, reader_meta=None):
         if ttype in ('Credit Note', 'Payment') and amount is not None and amount > 0 \
                 and not (parse_amount(cell(row, 'credit')) or 0):
             amount = -amount
+        # ── sign invariant ────────────────────────────────────────────────
+        # A row the statement itself calls a Bill, Invoice or Debit Note
+        # INCREASES what is owed; it cannot be negative. When the two
+        # disagree, the amount was taken from the wrong place - typically an
+        # allocation fragment ("AED1,765.00 from payment KWA-VP-6210") lifted
+        # out of a neighbouring payment's narration. Silently keeping it
+        # produces a difference of exactly twice the invoice, which is
+        # arithmetically impossible between two same-direction documents.
+        if ttype in DEBIT_TYPES and amount is not None and amount < 0:
+            sign_conflicts.append((idx + 1, ttype, round(amount, 2), str(raw_ref)[:40]))
+            invalid_rows += 1
+            continue
         records.append({
             'ref': ref, 'refAliases': aliases, 'allocationRefs': allocation,
             'refRaw': clean_cell(raw_ref).strip()[:120],
@@ -287,6 +304,26 @@ def parse_grid(grid, reader_meta=None):
         warnings.append(
             f'{unreferenced} row(s) kept without a readable reference '
             f'(net {val}) — matched by amount only, verify before posting')
+    if sign_conflicts:
+        conf -= 0.25
+        detail = '; '.join(f'row {r} {t} {a}' for r, t, a, _ in sign_conflicts[:4])
+        warnings.append(
+            f'{len(sign_conflicts)} row(s) dropped: the statement types them as a '
+            f'bill/invoice/debit note but the amount read as negative, so the figure '
+            f'was taken from the wrong cell ({detail}). These documents are NOT fully '
+            f'extracted — do not rely on this reconciliation until they are.')
+
+    # ── row accounting: every data row must be accounted for ─────────────
+    # Three payments once vanished from a Zoho statement with no diagnostic
+    # at all, because nothing checked that what went in came out. It does now.
+    accounted = len(records) + invalid_rows
+    if accounted != data_rows:
+        missing = data_rows - accounted
+        conf = min(conf, 0.4)
+        warnings.append(
+            f'ROW ACCOUNTING FAILED: {data_rows} data rows read, {len(records)} kept, '
+            f'{invalid_rows} rejected — {missing} unaccounted for. Rows have been lost '
+            f'silently; treat every total below as incomplete.')
     totals_check = None
     if doc_total is not None and records:
         s = round(sum(r['amount'] for r in records), 2)
@@ -309,6 +346,8 @@ def parse_grid(grid, reader_meta=None):
         'creditCol': colmap.get('credit', -1), 'amountCol': colmap.get('amount', -1),
         'dataRows': data_rows, 'invalidRows': invalid_rows,
         'unreferencedRows': unreferenced,
+        'signConflicts': len(sign_conflicts),
+        'rowsAccountedFor': len(records) + invalid_rows == data_rows,
         'confidence': round(conf, 3), 'warnings': warnings, 'totalsCheck': totals_check,
     }
     meta.update({k: v for k, v in reader_meta.items() if k in ('sheet', 'reader', 'tables', 'textPages', 'scanned')})

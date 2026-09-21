@@ -1,0 +1,7 @@
+priority,merchant_name_regex,category,note
+1,ADVERTISING|TIKTOK ADS|GOOGLE \*ADS|META |FACEBK|INSTAGRAM|SNAP\b|LINKEDIN ADS,Marketing & Advertising,merchant rule beats MCC
+2,DHL|ARAMEX|FEDEX|SHIPP,Logistics & Shipping,merchant rule beats MCC
+3,INSURANCE|ORIENT INS,Insurance,merchant rule beats MCC
+4,LINKEDIN JOB,Recruitment,merchant rule beats MCC
+5,SHOPIFY|PADDLE|LINKTREE|BEAUTIFUL\.AI|SCREAMING FROG|BLOOMBERG|EQUITYLIST|VASTA|OCTA|MAMO|COURSIV,Software & Subscriptions,merchant rule beats MCC
+6,FEDERAL TAX|SMARTDXB|DED\b|QATAR FINANCIAL|AAFAQ|GS1,Government & Compliance,merchant rule beats MCC

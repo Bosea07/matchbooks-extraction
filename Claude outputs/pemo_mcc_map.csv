@@ -1,0 +1,60 @@
+mcc,mcc_label,category,rows_in_export
+3175,Airline / hotel booking,Travel & Accommodation,1
+4111,Local transport,Transport & Fuel,53
+4121,Taxi & ride-hailing,Transport & Fuel,279
+4214,Freight & courier,Transport & Fuel,32
+4215,Courier services,Logistics & Shipping,3
+4722,Travel agencies,Travel & Accommodation,6
+4814,Telecom,Utilities & Telecom,27
+4816,Information services,Marketplace Purchases,4
+4899,Cable & streaming,Software & Subscriptions,15
+4900,Utilities,Utilities & Telecom,27
+5047,Medical & lab equipment,Procurement,3
+5065,Electronic parts,Office & Facilities,1
+5192,Books & publications,Software & Subscriptions,4
+5199,Nondurable goods,Marketplace Purchases,10
+5211,Building materials,Office & Facilities,4
+5262,Online marketplaces,Marketplace Purchases,93
+5311,Department stores,Marketplace Purchases,46
+5399,General merchandise,Marketplace Purchases,511
+5411,Grocery & supermarkets,Marketplace Purchases,512
+5499,Convenience & specialty food,Procurement,238
+5511,Automotive,Transport & Fuel,1
+5541,Service stations (fuel),Transport & Fuel,6
+5651,Apparel,Marketplace Purchases,6
+5691,Clothing stores,Marketplace Purchases,4
+5712,Furniture,Office & Facilities,4
+5713,Floor coverings,Office & Facilities,2
+5732,Electronics stores,Office & Facilities,23
+5734,Computer software,Software & Subscriptions,223
+5811,Caterers,Meals & Entertainment,230
+5812,Restaurants,Meals & Entertainment,96
+5814,Fast food,Meals & Entertainment,45
+5815,Digital media,Software & Subscriptions,2
+5816,Digital goods — games,Marketing & Advertising,16
+5817,Digital goods — apps,Marketing & Advertising,43
+5818,Digital goods — other,Marketing & Advertising,2
+5912,Pharmacies,Health & Pharmacy,23
+5942,Book stores,Marketplace Purchases,41
+5943,Stationery & office supplies,Office & Facilities,1
+5968,Subscription services,Marketing & Advertising,74
+5977,Cosmetics & personal care,Procurement,34
+5998,General stores,Marketplace Purchases,1
+5999,Specialty retail,Procurement,304
+6300,Insurance,Insurance,13
+6513,Real estate & rentals,Travel & Accommodation,1
+7011,Hotels & lodging,Travel & Accommodation,27
+7221,Photographic & print services,Office & Facilities,7
+7278,Buying & shopping services,Marketplace Purchases,667
+7311,Advertising services,Marketing & Advertising,276
+7372,Computer programming services,Software & Subscriptions,4
+7392,Consulting & PR,Professional Services,6
+7399,Business services,Government & Compliance,5
+7512,Car rental,Transport & Fuel,2
+7523,Parking,Transport & Fuel,3
+8099,Health services,Health & Pharmacy,20
+8299,Educational services,Professional Services,8
+8699,Membership organisations,Professional Services,2
+8931,Accounting & audit services,Professional Services,1
+9311,Tax payments,Government & Compliance,8
+9399,Government services,Government & Compliance,44

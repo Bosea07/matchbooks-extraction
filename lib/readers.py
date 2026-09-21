@@ -118,6 +118,76 @@ def _table_has_content(t):
     return any(str(c).strip() for row in t for c in row if c is not None)
 
 
+# A payment on a Zoho statement carries its allocation inside the Details cell:
+#
+#   28 Feb 2026  Payment Made  CODR2026/HO/106
+#                              KWA-VP-6206
+#                              AED2,875.84 for payment of .../2025/4404
+#                              AED1,355.98 for payment of .../2026/4495
+#
+# Read by word position, each of those visual lines becomes its own row, and a
+# line like "AED2,541.00 for payment of REVERSEPARCEL/Invoice/2026/5019" then
+# looks exactly like a transaction: it has an amount and a reference. It is
+# neither. It is a breakdown of the payment above it, and emitting it as a row
+# invents money that was never on the statement — and, being a payment
+# fragment, invents it with the wrong sign.
+_ALLOC_FRAGMENT = re.compile(
+    r'^\s*(?:[A-Z]{3}\s*)?[\d,]+\.?\d*\s+(?:for\s+payment\s+of|from\s+payment|'
+    r'in\s+excess\s+payments?)\b'
+    r'|^\s*(?:for\s+payment\s+of|from\s+payment|in\s+excess\s+payments?)\b', re.I)
+# A line that is nothing but the tail of a wrapped reference ("/2026/5019").
+_REF_TAIL = re.compile(r'^\s*[/\-][A-Za-z0-9/\-]+\s*$')
+# Column headings carry no date and no number either, so they look exactly like
+# narration. Folding one away would take the column map with it and wreck the
+# whole document, so any line reading like a header is never merged.
+_HEADER_WORDS = re.compile(
+    r'\b(date|type|transactions?|details|particulars|description|narration|'
+    r'amount|payments?|balance|debit|credit|reference|ref|invoice|voucher)\b', re.I)
+
+
+def _is_continuation(text, cells):
+    """Is this visual line part of the row above it rather than a row itself?"""
+    if len(_HEADER_WORDS.findall(text)) >= 2 and not _ALLOC_FRAGMENT.match(text):
+        return False
+    if _ALLOC_FRAGMENT.match(text) or _REF_TAIL.match(text):
+        return True
+    # A stray line carrying neither a date nor a number is narration — a
+    # voucher number on its own line, a wrapped description. Restricted to one
+    # or two cells so that a header split across few cells is not swallowed.
+    if len(cells) <= 2:
+        from .normalize import parse_amount, parse_date
+        if not any(parse_amount(c) is not None for c in cells) \
+                and not any(parse_date(c)[0] for c in cells):
+            return True
+    return False
+
+
+def _merge_allocation_fragments(rows):
+    """Fold allocation lines back into the row they belong to.
+
+    Merged text is appended to the previous row's longest cell (its narration),
+    so the reference stays readable and recorded while never becoming a row of
+    its own with an amount attached."""
+    out = []
+    for row in rows:
+        cells = [c for c in row if c not in (None, '')]
+        text = ' '.join(str(c) for c in cells).strip()
+        if out and text and _is_continuation(text, cells):
+            prev = out[-1]
+            widest, best = None, -1
+            for j, c in enumerate(prev):
+                n = len(str(c or ''))
+                if n > best:
+                    widest, best = j, n
+            if widest is not None:
+                prev[widest] = (str(prev[widest] or '') + '\n' + text).strip()
+            else:
+                prev.append(text)
+            continue
+        out.append(list(row))
+    return out
+
+
 def read_pdf(data: bytes):
     import pdfplumber
     grid, used_tables, text_pages = [], 0, 0
@@ -128,13 +198,16 @@ def read_pdf(data: bytes):
             if good:
                 used_tables += len(good)
                 for t in good:
-                    for row in t:
-                        grid.append([(c.strip() if isinstance(c, str) else c) or None for c in row])
+                    tbl = [[(c.strip() if isinstance(c, str) else c) or None for c in row]
+                           for row in t]
+                    # pdfplumber sometimes breaks a tall multi-line cell into
+                    # separate rows; fold those back here too
+                    grid.extend(_merge_allocation_fragments(tbl))
             else:
                 words = page.extract_words() or []
                 if words:
                     text_pages += 1
-                    grid.extend(_words_to_rows(words))
+                    grid.extend(_merge_allocation_fragments(_words_to_rows(words)))
     # a grid of nothing but empty cells is still nothing
     scanned = not any(c not in (None, '') for row in grid for c in row)
     return grid, {'reader': 'pdf', 'tables': used_tables, 'textPages': text_pages, 'scanned': scanned}
