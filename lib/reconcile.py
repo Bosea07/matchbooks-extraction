@@ -415,6 +415,7 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             'vendorRef': vlab, 'zohoRef': zlab, 'lane': 'reference',
             'refRaw': v['refRaw'], 'date': v['dateRaw'] or z['dateRaw'],
             'dateISO': v['date'] or z['date'],
+            'vendorDateISO': v['date'], 'zohoDateISO': z['date'],
             'type': (v['types'] or z['types'] or ['Invoice'])[0],
             'vendorAmt': v['amount'], 'zohoAmt': z['amount'],
             'impliedRate': implied,
@@ -475,6 +476,7 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                         'lane': 'payment', 'refRaw': v.get('refRaw') or v['ref'],
                         'date': v.get('date') or z.get('date') or '',
                         'dateISO': v.get('dateISO') or z.get('dateISO'),
+                        'vendorDateISO': v.get('dateISO'), 'zohoDateISO': z.get('dateISO'),
                         'type': 'Payment', 'vendorAmt': v['amount'], 'zohoAmt': z['amount'],
                         'impliedRate': implied,
                         'diff': None if fx_rate else (d if not ok else 0.0),
@@ -658,8 +660,51 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                if not pay_pairs else
                f'{len(pay_pairs)} payment(s) matched by reference, {pay_unmatched} did not.')))
 
+    # ── group the results by calendar year ───────────────────────────────
+    # Statements routinely span several years, and a 2024 exception left open
+    # is a different conversation from one raised last month. Grouping happens
+    # HERE, after matching, and never before: reconciling year by year would
+    # break every cross-year settlement — an invoice raised in 2024 and
+    # cleared in 2026 would become an exception on both sides.
+    by_year = {}
+    cross_year = 0
+    for r in results:
+        vd, zd = r.get('vendorDateISO'), r.get('zohoDateISO')
+        if vd and zd and vd[:4] != zd[:4]:
+            cross_year += 1
+            r['crossYear'] = True
+        yr = (r.get('dateISO') or '')[:4] or 'undated'
+        r['year'] = yr
+        b = by_year.setdefault(yr, {
+            'matched': 0, 'amountDiff': 0, 'extraInVendor': 0,
+            'missingInVendor': 0, 'vendorTotal': 0.0, 'zohoTotal': 0.0,
+            'rows': 0, 'crossYear': 0})
+        b['rows'] += 1
+        key = {'MATCHED': 'matched', 'AMOUNT_DIFF': 'amountDiff',
+               'EXTRA_IN_VENDOR': 'extraInVendor',
+               'MISSING_IN_VENDOR': 'missingInVendor'}.get(r['status'])
+        if key:
+            b[key] += 1
+        b['vendorTotal'] = round(b['vendorTotal'] + (r.get('vendorAmt') or 0), 2)
+        b['zohoTotal'] = round(b['zohoTotal'] + (r.get('zohoAmt') or 0), 2)
+        if r.get('crossYear'):
+            b['crossYear'] += 1
+    for b in by_year.values():
+        b['netDifference'] = round(b['vendorTotal'] - b['zohoTotal'], 2)
+    years = sorted(y for y in by_year if y != 'undated')
+    if cross_year:
+        syn_notes.append(
+            f'{cross_year} matched pair(s) span two calendar years — a charge '
+            f'raised in one year and settled in another. They are grouped under '
+            f'the vendor\'s date and flagged, so a year total can legitimately '
+            f'differ from that year\'s own movement.')
+
     summary = {
         'totalReferences': len(results),
+        'byYear': by_year,
+        'years': years,
+        'multiYear': len(years) > 1,
+        'crossYearPairs': cross_year,
         'matched': matched, 'amountDiff': amount_diff,
         'extraInVendor': n_extra, 'missingInVendor': n_missing,
         'netDifference': round(vendor_net - zoho_net, 2),
