@@ -8,6 +8,10 @@ from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
 # can never carry a negative amount.
 DEBIT_TYPES = ('Bill', 'Invoice', 'Debit Note')
 
+# First cell of a row that introduces the account rather than transacting on it.
+ACCOUNT_HEADER = re.compile(
+    r'^\s*(customer|supplier|vendor|account|party|debtor|creditor)\s*:?\s*$', re.I)
+
 HEADER_SYNONYMS = {
     'date':   ['date', 'doc date', 'document date', 'txn date', 'transaction date',
                'invoice date', 'bill date', 'posting date', 'entry date'],
@@ -92,6 +96,44 @@ def find_header(grid):
     return (row + span - 1 if row >= 0 else -1), colmap
 
 
+def _colmap_score(grid, start, colmap):
+    """How well does this column map actually fit the data beneath it?
+
+    A header can sit in different columns from its own values when the export
+    merges cells, and a map that looks right from the header row alone then
+    reads dates out of the amount column. Checking against the data is the only
+    way to find out."""
+    rows = [r for r in grid[start:start + 40] if any(c not in (None, '') for c in r)]
+    if not rows:
+        return 0.0
+    hits = 0
+    for r in rows[:30]:
+        j = colmap.get('date')
+        if j is not None and 0 <= j < len(r) and parse_date(r[j])[0]:
+            hits += 2
+        for key in ('amount', 'debit', 'credit'):
+            j = colmap.get(key)
+            if j is not None and 0 <= j < len(r) and parse_amount(r[j]) is not None:
+                hits += 1
+    return hits / min(len(rows), 30)
+
+
+def _compacted_colmap(header_cells):
+    """Map the i-th header LABEL to the i-th column.
+
+    Merged header cells leave gaps: "Doc No." spanning five columns is stored
+    once with four blanks after it, so every later label ends up well to the
+    right of the values it names. Taken in order and re-indexed densely, the
+    labels line up with their data again."""
+    out = {}
+    labels = [c for c in header_cells if c not in (None, '')]
+    for i, c in enumerate(labels):
+        key = _match_header(c)
+        if key and key not in out:
+            out[key] = i
+    return out
+
+
 def _infer_columns(grid, start, known=None, header_row=None):
     known = known or {}
     from collections import Counter
@@ -134,6 +176,17 @@ def parse_grid(grid, reader_meta=None):
     reader_meta = reader_meta or {}
     grid = [list(r) for r in grid if r is not None]
     header_row, colmap = find_header(grid)
+    realigned = False
+    # Merged header cells push every label right of its own data. Trust the
+    # data: if re-indexing the labels densely fits it better, the header was
+    # merged and the literal positions are wrong.
+    if header_row >= 0 and colmap and header_row < len(grid):
+        alt = _compacted_colmap(grid[header_row])
+        if alt and alt != colmap:
+            lit_score = _colmap_score(grid, header_row + 1, colmap)
+            alt_score = _colmap_score(grid, header_row + 1, alt)
+            if alt_score > lit_score + 0.5:
+                colmap, realigned = alt, True
     inferred = False
     if header_row < 0 or ('amount' not in colmap and not ('debit' in colmap and 'credit' in colmap)):
         inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0,
@@ -164,10 +217,30 @@ def parse_grid(grid, reader_meta=None):
     data_rows = invalid_rows = unreferenced = 0
     sign_conflicts = []
     doc_total = None
+    opening_balance = None
     for idx, row in enumerate(grid[start:], start=start):
         if not any(c not in (None, '') for c in row):
             continue
+        # An account-header row names the party and carries its opening
+        # balance; it is not a transaction. Pharmatrade writes "Customer" in
+        # the first cell with the balance further along, which no
+        # opening-balance wording catches.
+        if ACCOUNT_HEADER.match(str(row[0] or '')) \
+                and not parse_date(cell(row, 'date'))[0]:
+            nums = [parse_amount(c) for c in row]
+            nums = [n for n in nums if n is not None]
+            if nums and opening_balance is None:
+                opening_balance = nums[-1]
+            warnings.append(
+                f'Row {idx + 1}: account-header row skipped'
+                + (f' (opening balance {opening_balance:,.2f})'
+                   if opening_balance is not None else ''))
+            continue
         if is_opening_row(row):
+            nums = [parse_amount(c) for c in row]
+            nums = [n for n in nums if n is not None]
+            if nums and opening_balance is None:
+                opening_balance = nums[-1]
             warnings.append(f'Row {idx + 1}: opening-balance row skipped')
             continue
         if is_total_row(row):
@@ -243,7 +316,12 @@ def parse_grid(grid, reader_meta=None):
                 # already removed the rows where a number there IS an amount.
                 # UK suppliers number invoices exactly so ("15195"), and
                 # rejecting them loses the row's identity altogether.
-                numeric_docno = (re.fullmatch(r'\d{4,9}', lead) is not None
+                # Receipt vouchers are numbered from 1, so "119" and "73" are
+                # document numbers as much as "10496459" is. On a dated row in
+                # the reference column a bare number is an identifier: the
+                # total-row guard above has already taken out the rows where a
+                # number there means money.
+                numeric_docno = (re.fullmatch(r'\d{2,9}', lead) is not None
                                  and parse_date(cell(row, 'date'))[0] is not None)
                 # Some systems put a space inside the document number — SAP B1
                 # writes "RC 15400071" and "IN 1300027". Allow one, but only
@@ -350,6 +428,10 @@ def parse_grid(grid, reader_meta=None):
     if inferred:
         conf -= 0.10
         warnings.append('Headers not found — columns inferred from data shape')
+    if realigned:
+        warnings.append(
+            'Header cells are merged — column labels sit right of their own '
+            'data, so the map was rebuilt by label order. Spot-check a row.')
     if unreferenced:
         conf -= 0.10
         val = round(sum(r['amount'] for r in records if r['ref'].startswith('~')), 2)
@@ -379,8 +461,16 @@ def parse_grid(grid, reader_meta=None):
     totals_check = None
     if doc_total is not None and records:
         s = round(sum(r['amount'] for r in records), 2)
-        ok = abs(s - doc_total) <= max(1.0, abs(doc_total) * 0.001)
-        totals_check = {'documentTotal': doc_total, 'extractedSum': s, 'ok': ok}
+        # A ledger's stated total is a CLOSING BALANCE, not the sum of its
+        # movements: opening + movement = closing. Comparing the movement
+        # straight to the closing balance fails on every ledger that opens with
+        # a balance, which buries the one check worth having.
+        expected = doc_total if opening_balance is None \
+            else round(doc_total - opening_balance, 2)
+        ok = abs(s - expected) <= max(1.0, abs(expected) * 0.001)
+        totals_check = {'documentTotal': doc_total, 'extractedSum': s,
+                        'openingBalance': opening_balance,
+                        'expectedMovement': expected, 'ok': ok}
         if ok:
             conf = max(conf, 0.9)
         else:
@@ -398,6 +488,9 @@ def parse_grid(grid, reader_meta=None):
         'creditCol': colmap.get('credit', -1), 'amountCol': colmap.get('amount', -1),
         'dataRows': data_rows, 'invalidRows': invalid_rows,
         'unreferencedRows': unreferenced,
+        # reported on its own as well as inside totalsCheck: a statement can
+        # state an opening balance without stating a closing one
+        'openingBalance': opening_balance,
         'signConflicts': len(sign_conflicts),
         'rowsAccountedFor': len(records) + invalid_rows == data_rows,
         'confidence': round(conf, 3), 'warnings': warnings, 'totalsCheck': totals_check,

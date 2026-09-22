@@ -77,7 +77,8 @@ def main(path):
     total = 0.0
     for i, r in enumerate(records[:MAX_RECORDS]):
         total += r['amount']
-        print(f'{i:>4} {str(r.get("date") or "")[:12]:<12} {str(r.get("type") or "")[:12]:<12} '
+        print(f'{i:>4} {str(r.get("dateISO") or r.get("date") or "")[:10]:<12} '
+              f'{str(r.get("type") or "")[:12]:<12} '
               f'{r["amount"]:>14,.2f}  {r["ref"]}')
     if len(records) > MAX_RECORDS:
         rest = sum(r['amount'] for r in records[MAX_RECORDS:])

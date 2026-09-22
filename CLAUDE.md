@@ -66,7 +66,7 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.13.0
+## Current state — v2.14.0
 
 Run `run_tests.cmd` from the repo root (`.\run_tests.cmd` in PowerShell — it
 will not run without the `.\`).
@@ -82,6 +82,31 @@ Diagnostics, all of which take a file path and print to UTF-8:
 - `tools/recon_workbook.py <file> <vendorSheet> <zohoSheet>` — parses two
   sheets and reconciles them. Use it to check the engine against a
   reconciliation someone did by hand in the same workbook.
+
+### v2.14 — merged headers, year grouping (Pharmatrade / SHIFA)
+
+A 64-row customer ledger produced **zero** records. `Doc No.` was a merged cell
+spanning five columns, so every later label sat four columns right of its own
+data: `Doc Date` was read from the Debit column, and because a number appeared
+where a date belonged, the total-row guard discarded every line.
+
+1. **The column map is validated against the data, not trusted from the header
+   row.** If re-indexing the labels densely (ignoring the gaps merged cells
+   leave) fits the data better, that map is used and a warning says so.
+   `_compacted_colmap` / `_colmap_score`
+2. Numeric document numbers accepted from 2 digits, not 4 — receipt vouchers
+   are numbered from 1, and `119` was becoming `~ROW7`
+3. **Account-header rows** (first cell Customer/Supplier/Vendor/Account, no
+   date) are excluded and their opening balance captured. Pharmatrade's read as
+   an invoice of +1,723.93 — the opening balance, sign-flipped by the credit
+   column
+4. **`totalsCheck` compares the right things.** A ledger states a CLOSING
+   balance, so the test is `opening + movement = closing`, not
+   `movement = closing`. `openingBalance` and `expectedMovement` are reported
+5. Results are grouped by calendar year — `byYear`, `years`, `multiYear`,
+   `crossYearPairs`, and a `year` on every result row. **Grouping happens after
+   matching, never before**: reconciling year by year would turn every
+   cross-year settlement into two phantom exceptions
 
 ### v2.13 — SAP document-type codes and period scope (Honasa)
 
@@ -155,6 +180,15 @@ Sample documents are not in the repo; ask before assuming a path.
 - **Reverse Parcel** (v2.11 target) — expect **21 matched**, one amount
   difference of **2,558.00** on invoice 5617, no DN/335 false match, and a
   stated payment gap of **25,068.02**. Net difference ties to **54,567.14**.
+- **Pharmatrade / SHIFA customer ledger** — merged header. 55 records, and the
+  tie-out is exact: opening **−1,723.93** + movement **1,724.03** = closing
+  **0.10**. One row is legitimately unreferenced (`TT-Shifa Home Health Care`,
+  −1,850.00). Its `RV` rows are *receipt* vouchers, so they come out as credit
+  notes rather than payments — see the note on `RV` in `normalize.py`.
+- **Honasa** — vendor SAP ledger vs Zoho SOA, three years against eight months.
+  Vendor net ties to **−79,037.83**; unbooked vendor charges after our window
+  come to **187,320.51** against the manual workbook's 188,341.91, the
+  1,021.40 difference being invoice `8066000925` double-counted by hand.
 - **SAP B1 GL (Kuwa Food Supplements)** — 6 records, 2 of them negative,
   summing to **−1,748,166.00**. Opening 1,929,045.86 less that movement gives
   180,879.86, the closing balance printed in the file. Covered by

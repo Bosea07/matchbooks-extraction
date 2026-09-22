@@ -192,7 +192,13 @@ SAP_DOC_TYPES = {
     'AB': 'Journal',      # accounting document
     'SA': 'Journal',      # G/L account document
     'UE': 'Journal',      # data transfer / clearing
+    'IN': 'Invoice',      # common short form in Gulf/India ERP ledgers
 }
+# 'RV' is genuinely ambiguous — a billing document in SAP, a receipt voucher in
+# several other ERPs. It is left mapped to Invoice because the sign rule above
+# rescues it: a receipt lands in the credit column, arrives negative, and a
+# negative on a document CODE is reclassified as a credit note rather than
+# being trusted as an invoice.
 
 
 def is_doc_code(value):

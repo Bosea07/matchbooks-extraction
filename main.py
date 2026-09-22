@@ -19,7 +19,7 @@ from lib.export_xlsx import build_workbook, to_bytes
 MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
 CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-app = FastAPI(title='matchbooks-extraction', version='2.13.0')
+app = FastAPI(title='matchbooks-extraction', version='2.14.0')
 app.add_middleware(CORSMiddleware,
                    allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
                    allow_methods=['*'], allow_headers=['*'])
@@ -27,7 +27,7 @@ app.add_middleware(CORSMiddleware,
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'matchbooks-extraction',
-            'version': '2.13.0',
+            'version': '2.14.0',
             'claudeFallback': claude_extract.available(),
             'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
