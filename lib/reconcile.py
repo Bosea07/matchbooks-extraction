@@ -522,15 +522,30 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                 f"({a['vendorAmt']:,.2f}), {gap:.1%} apart — check before writing this off"
 
     # same-side contra detection (net-zero clusters) — annotate, do not match
+    # Each row may be claimed by ONE contra. Without this a single large
+    # posting pairs with every equal-and-opposite row in the ledger and the
+    # findings fill with the same amount stated three ways, which reads as
+    # three problems instead of one ambiguity.
     contra_notes = []
+    claimed = set()
     open_v_rows = [r for r in results if r['status'] == 'EXTRA_IN_VENDOR']
     for a, b in itertools.combinations(open_v_rows, 2):
+        if id(a) in claimed or id(b) in claimed:
+            continue
         va, vb = a.get('vendorAmt'), b.get('vendorAmt')
         if va is not None and vb is not None and abs(round(va + vb, 2)) <= tolerance and va != 0:
+            claimed.add(id(a))
+            claimed.add(id(b))
             note = f"possible vendor-side contra: {a['ref']} ({va}) offsets {b['ref']} ({vb})"
             a['note'] = (a['note'] + ' · ' if a['note'] else '') + 'possible contra with ' + b['ref']
             b['note'] = (b['note'] + ' · ' if b['note'] else '') + 'possible contra with ' + a['ref']
             contra_notes.append(note)
+    if len(contra_notes) > 8:
+        kept = contra_notes[:8]
+        kept.append(f'... and {len(contra_notes) - 8} further contra pairs '
+                    f'(a ledger with this many self-cancelling postings is '
+                    f'usually carrying reversals, not discrepancies)')
+        contra_notes = kept
 
     order = {'AMOUNT_DIFF': 0, 'EXTRA_IN_VENDOR': 1, 'MISSING_IN_VENDOR': 2, 'MATCHED': 3}
     results.sort(key=lambda r: (order.get(r['status'], 9), -(abs(r['diff'] or r['vendorAmt'] or r['zohoAmt'] or 0))))
@@ -573,10 +588,66 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     # receipts, the other its vouchers — so every payment lands unmatched and
     # the reader is left adding a dozen orphan rows by hand. State the
     # aggregate instead: that single number is usually the finding.
+    # ── period overlap ───────────────────────────────────────────────────
+    # A vendor ledger reaching back two years against a statement covering
+    # eight months produces a hundred "missing in our books" rows that are
+    # simply out of period. The engine cannot know the intended window, but it
+    # can see the two sides do not describe the same one, and must say so
+    # rather than let the reader mistake history for a discrepancy.
+    def _span(rows):
+        ds = sorted(d for d in (r.get('dateISO') for r in rows) if d)
+        return (ds[0], ds[-1]) if ds else (None, None)
+
+    v_lo, v_hi = _span(vendor_rows + v_pay)
+    z_lo, z_hi = _span(zoho_rows + z_pay)
+    period_notes = []
+    window = [None, None]
+    after_window = {'count': 0, 'value': 0.0}
+    if v_lo and z_lo:
+        lo, hi = max(v_lo, z_lo), min(v_hi, z_hi)
+        window = [lo, hi]
+
+        # Before and after are not the same finding. Rows dated before the
+        # other document begins are history neither side disputes. Rows dated
+        # AFTER it ends are documents the other side has not recorded yet —
+        # which is usually the whole reason for running the reconciliation.
+        def _split(rows, label, other_hi):
+            before = [r for r in rows if r.get('dateISO') and r['dateISO'] < lo]
+            after = [r for r in rows if r.get('dateISO') and r['dateISO'] > hi]
+            if before:
+                period_notes.append(
+                    f'{len(before)} {label} row(s) predate the other document '
+                    f'(before {lo}), net {sum(r["amount"] for r in before):,.2f}. '
+                    f'They appear as exceptions below but are outside the '
+                    f'comparable period.')
+            if after:
+                inv = [r for r in after if (r.get('amount') or 0) > 0]
+                period_notes.append(
+                    f'{len(after)} {label} row(s) are dated after the other '
+                    f'document ends ({other_hi}), net '
+                    f'{sum(r["amount"] for r in after):,.2f}'
+                    + (f' — of which {len(inv)} charge(s) totalling '
+                       f'{sum(r["amount"] for r in inv):,.2f} are most likely '
+                       f'documents the other side has not recorded yet.'
+                       if inv else '.'))
+            return after, inv if after else []
+
+        v_after, v_after_inv = _split(vendor_rows + v_pay, 'vendor statement', z_hi)
+        _split(zoho_rows + z_pay, 'our own', v_hi)
+        after_window = {'count': len(v_after_inv),
+                        'value': round(sum(r['amount'] for r in v_after_inv), 2)}
+        if period_notes:
+            period_notes.insert(0, (
+                f'The two documents cover different periods — the vendor '
+                f'statement runs {v_lo} to {v_hi}, ours {z_lo} to {z_hi}. '
+                f'They can only be compared like with like between {lo} and {hi}.'))
+
     v_pay_total = round(sum(p['amount'] for p in v_pay), 2)
     z_pay_total = round(sum(p['amount'] for p in z_pay), 2)
     pay_gap = round(v_pay_total - z_pay_total, 2)
     pay_unmatched = len(v_pay) + len(z_pay) - 2 * len(pay_pairs)
+    for n in reversed(period_notes):
+        syn_notes.insert(0, n)
     if pay_unmatched and abs(pay_gap) > tolerance:
         syn_notes.insert(0, (
             f'Payments do not agree: the vendor statement shows {abs(v_pay_total):,.2f} '
@@ -603,6 +674,13 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         'droppedRows': len(unusable),
         'vendorPaymentTotal': v_pay_total, 'zohoPaymentTotal': z_pay_total,
         'paymentGap': pay_gap, 'paymentsUnmatched': pay_unmatched,
+        'vendorPeriod': [v_lo, v_hi], 'zohoPeriod': [z_lo, z_hi],
+        'comparableWindow': window,
+        'periodMismatch': bool(period_notes),
+        # charges the vendor raised after our statement ends — the usual
+        # headline of a reconciliation like this
+        'vendorChargesAfterWindow': after_window['count'],
+        'vendorChargesAfterWindowValue': after_window['value'],
         'currencyMismatch': bool(fx_rate),
         'netDifferenceMeaningful': not fx_rate,
         'impliedRate': round(fx_rate, 4) if fx_rate else None,

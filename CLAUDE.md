@@ -66,15 +66,47 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.12.0
+## Current state — v2.13.0
 
-**60 tests passing** across five files. Run `run_tests.cmd` from the repo root
-(`.\run_tests.cmd` in PowerShell — it will not run without the `.\`).
+Run `run_tests.cmd` from the repo root (`.\run_tests.cmd` in PowerShell — it
+will not run without the `.\`).
 
-`tools/diagnose.py <file>` dumps the raw grid, the detected header and column
-map, every warning, and the parsed records. When a file extracts badly, run
-that first: it shows the failure where it happens rather than three stages
-later in the reconciliation.
+Diagnostics, all of which take a file path and print to UTF-8:
+
+- `tools/diagnose.py <file>` — raw grid, detected header and column map, every
+  warning, parsed records. **Run this first when a file extracts badly**: it
+  shows the failure where it happens rather than three stages later.
+- `tools/dump_workbook.py <file> [rows]` — every sheet's shape, head, last row
+  and per-column numeric totals. The totals usually identify the amount column
+  on sight and give control figures to check against.
+- `tools/recon_workbook.py <file> <vendorSheet> <zohoSheet>` — parses two
+  sheets and reconciles them. Use it to check the engine against a
+  reconciliation someone did by hand in the same workbook.
+
+### v2.13 — SAP document-type codes and period scope (Honasa)
+
+A vendor ledger of 153 rows containing 67 payments reported a payment total of
+0.00: SAP writes `DZ` where a statement writes "Payment Made", so every payment
+sat in the invoice lane.
+
+1. `SAP_DOC_TYPES` maps the posting codes (`RV`, `DZ`, `KZ`, `DG`, `UE`, …)
+2. **Codes and words are treated differently for signs.** "Bill" is a claim
+   about direction, so a negative one is an extraction error and is rejected.
+   `RV` is only a posting category — SAP books reversals under the same code
+   with the sign flipped — so there a negative means credit note, and a
+   positive `DZ` must NOT be re-signed. Missing that second half moved a
+   ledger's net from −79,037.83 to −2,757,610.49
+3. **Period scope is reported, and split.** Rows predating the other document
+   are history; rows dated *after* it ends are documents the other side has
+   not booked — usually the whole point of the exercise. Surfaced as
+   `vendorChargesAfterWindowValue`
+4. Contra pairs may claim each row once, and summarise past eight. One posting
+   was previously reported as offsetting three different rows
+
+**Validated against a human reconciliation.** From the two raw tabs alone the
+engine produced 187,320.51 of unbooked vendor charges against the manual tab's
+188,341.91 — the 1,021.40 difference being invoice `8066000925`, which the
+manual counted as unrecorded while also showing it matched in Zoho.
 
 ### v2.12 — SAP Business One ledgers
 

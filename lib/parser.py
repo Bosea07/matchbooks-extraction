@@ -2,7 +2,7 @@ import re
 from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
                         infer_type, is_total_row, is_opening_row,
                         SCI_NOTATION, unwrap_pdf_breaks, canon_type,
-                        ref_candidates, clean_cell)
+                        ref_candidates, clean_cell, is_doc_code)
 
 # Types that increase what is owed. A row the statement labels one of these
 # can never carry a negative amount.
@@ -288,16 +288,23 @@ def parse_grid(grid, reader_meta=None):
             unreferenced += 1
             raw_ref = raw_ref if raw_ref not in (None, '') else ''
         iso, raw_date = parse_date(cell(row, 'date'))
-        ttype = cell(row, 'type')
+        raw_type = cell(row, 'type')
         # a real type column is authoritative; narration is only a fallback
-        ttype = canon_type(ttype) if ttype not in (None, '') else \
+        ttype = canon_type(raw_type) if raw_type not in (None, '') else \
             infer_type(' '.join(str(c) for c in row if c is not None))
         from .normalize import type_from_ref
         pref_type = type_from_ref(ref)
         if pref_type:
             ttype = pref_type
+        # Statements that label a row "Payment Made" put the figure in a
+        # payments column as a positive number, so it has to be negated. A
+        # ledger posting document-type CODES does not: its amount column is
+        # already signed, and negating a positive DZ turns a reversal into a
+        # second payment. Nine rows flipped that way once, moving a ledger's
+        # net from -79,037.83 to -2,757,610.49.
         if ttype in ('Credit Note', 'Payment') and amount is not None and amount > 0 \
-                and not (parse_amount(cell(row, 'credit')) or 0):
+                and not (parse_amount(cell(row, 'credit')) or 0) \
+                and not is_doc_code(raw_type):
             amount = -amount
         # ── sign invariant ────────────────────────────────────────────────
         # A row the statement itself calls a Bill, Invoice or Debit Note
@@ -308,9 +315,15 @@ def parse_grid(grid, reader_meta=None):
         # produces a difference of exactly twice the invoice, which is
         # arithmetically impossible between two same-direction documents.
         if ttype in DEBIT_TYPES and amount is not None and amount < 0:
-            sign_conflicts.append((idx + 1, ttype, round(amount, 2), str(raw_ref)[:40]))
-            invalid_rows += 1
-            continue
+            if is_doc_code(raw_type):
+                # A posting code is a category, not a direction. SAP books a
+                # reversal under the same code with the sign flipped, so a
+                # negative here is the document telling us what it is.
+                ttype = 'Credit Note'
+            else:
+                sign_conflicts.append((idx + 1, ttype, round(amount, 2), str(raw_ref)[:40]))
+                invalid_rows += 1
+                continue
         records.append({
             'ref': ref, 'refAliases': aliases, 'allocationRefs': allocation,
             'refRaw': clean_cell(raw_ref).strip()[:120],

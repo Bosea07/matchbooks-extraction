@@ -174,6 +174,37 @@ _TYPE_CANON = [
     (re.compile(r'^(sales?\s*invoices?|tax\s*invoices?|sales?)\b', re.I), 'Invoice'),
 ]
 
+# SAP posts a two-letter document type rather than a word. Left unmapped they
+# are not recognised as payments, so an entire vendor ledger lands in the
+# invoice lane and the payment comparison reads zero against our own — which
+# is how a 303,757.05 "gap" appeared against a ledger holding 67 payments.
+SAP_DOC_TYPES = {
+    'RV': 'Invoice',      # billing document
+    'RE': 'Invoice',      # gross vendor invoice
+    'KR': 'Invoice',      # vendor invoice
+    'DR': 'Invoice',      # customer invoice
+    'DZ': 'Payment',      # customer payment
+    'KZ': 'Payment',      # vendor payment
+    'ZP': 'Payment',      # payment posting
+    'DG': 'Credit Note',  # customer credit memo
+    'KG': 'Credit Note',  # vendor credit memo
+    'RA': 'Credit Note',  # invoice cancellation
+    'AB': 'Journal',      # accounting document
+    'SA': 'Journal',      # G/L account document
+    'UE': 'Journal',      # data transfer / clearing
+}
+
+
+def is_doc_code(value):
+    """True when the type came from a document-type CODE rather than a word.
+
+    It matters for signs. "Bill" is a claim about direction and a negative one
+    is an extraction error. 'RV' is only a posting category — SAP writes a
+    reversal under the same code with the sign flipped — so there the sign is
+    data, not a mistake."""
+    return str(value or '').strip().upper() in SAP_DOC_TYPES
+
+
 def canon_type(value):
     """Map a statement's own type-column wording onto the vocabulary the rest of
     the engine and the UI use: 'Payment Made' -> Payment, 'Credits' -> Credit
@@ -182,6 +213,8 @@ def canon_type(value):
     s = str(value or '').strip()
     if not s:
         return s
+    if s.upper() in SAP_DOC_TYPES:
+        return SAP_DOC_TYPES[s.upper()]
     for rx, t in _TYPE_CANON:
         if rx.match(s):
             return t
