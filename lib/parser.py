@@ -2,7 +2,7 @@ import re
 from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
                         infer_type, is_total_row, is_opening_row,
                         SCI_NOTATION, unwrap_pdf_breaks, canon_type,
-                        ref_candidates, clean_cell, is_doc_code)
+                        ref_candidates, clean_cell, is_doc_code, detect_currency)
 
 # Types that increase what is owed. A row the statement labels one of these
 # can never carry a negative amount.
@@ -29,6 +29,8 @@ HEADER_SYNONYMS = {
                'amount (aed)', 'aed', 'gross amount', 'balance amount',
                'deb cred', 'debit credit', 'dr cr', 'signed amount'],
     'desc':   ['description', 'narration', 'details', 'particulars', 'memo', 'remarks'],
+    'currency': ['currency', 'document currency', 'currency code', 'curr', 'ccy',
+                 'txn currency', 'transaction currency'],
 }
 
 # A running balance is not a transaction amount. An SAP B1 export puts
@@ -218,6 +220,21 @@ def parse_grid(grid, reader_meta=None):
     sign_conflicts = []
     doc_total = None
     opening_balance = None
+
+    # ── what currency is this statement in? ──────────────────────────────
+    # Two sources, in order of trust. A currency COLUMN is a per-row
+    # declaration and is authoritative. Failing that, the symbols and codes
+    # printed around the document — "Balance Due $ 127,883.28" in a summary
+    # block, "Dhs" beside a figure — say what the whole document is in.
+    # Never guessed from the amounts themselves.
+    ccy_counts = {}
+    has_ccy_col = 'currency' in colmap
+    if not has_ccy_col:
+        for r in grid[:200]:
+            for c in r:
+                cc = detect_currency(c)
+                if cc:
+                    ccy_counts[cc] = ccy_counts.get(cc, 0) + 1
     for idx, row in enumerate(grid[start:], start=start):
         if not any(c not in (None, '') for c in row):
             continue
@@ -402,11 +419,15 @@ def parse_grid(grid, reader_meta=None):
                 sign_conflicts.append((idx + 1, ttype, round(amount, 2), str(raw_ref)[:40]))
                 invalid_rows += 1
                 continue
+        row_ccy = detect_currency(cell(row, 'currency')) if has_ccy_col else None
+        if row_ccy:
+            ccy_counts[row_ccy] = ccy_counts.get(row_ccy, 0) + 1
         records.append({
             'ref': ref, 'refAliases': aliases, 'allocationRefs': allocation,
             'refRaw': clean_cell(raw_ref).strip()[:120],
             'date': raw_date or (iso or ''), 'dateISO': iso,
             'type': ttype, 'amount': round(amount, 2), 'row': idx + 1,
+            'currency': row_ccy,
         })
 
     seen, deduped, dropped = set(), [], 0
@@ -458,6 +479,30 @@ def parse_grid(grid, reader_meta=None):
             f'ROW ACCOUNTING FAILED: {data_rows} data rows read, {len(records)} kept, '
             f'{invalid_rows} rejected — {missing} unaccounted for. Rows have been lost '
             f'silently; treat every total below as incomplete.')
+    # dominant currency, and whether the document mixes more than one
+    currency = None
+    mixed_currency = False
+    if ccy_counts:
+        ranked = sorted(ccy_counts.items(), key=lambda kv: -kv[1])
+        currency = ranked[0][0]
+        # One or two stray rows in another currency is a real thing (Honasa's
+        # USD ledger carries two INR postings) and must be said out loud —
+        # summing across currencies produces a number that means nothing.
+        minor = [c for c, n in ranked[1:] if n > 0]
+        if minor and has_ccy_col:
+            mixed_currency = True
+            conf -= 0.10
+            warnings.append(
+                'This statement mixes currencies: ' +
+                ', '.join(f'{c}x{n}' for c, n in ranked) +
+                '. Totals below add them together and are NOT a monetary '
+                'figure until the minor rows are converted or excluded.')
+    else:
+        warnings.append(
+            'No currency found on this statement — nothing states a code or a '
+            'symbol. Amounts are reported as plain numbers; confirm the '
+            'currency before comparing them with anything.')
+
     totals_check = None
     if doc_total is not None and records:
         s = round(sum(r['amount'] for r in records), 2)
@@ -493,6 +538,8 @@ def parse_grid(grid, reader_meta=None):
         'openingBalance': opening_balance,
         'signConflicts': len(sign_conflicts),
         'rowsAccountedFor': len(records) + invalid_rows == data_rows,
+        'currency': currency, 'currencyCounts': ccy_counts,
+        'mixedCurrency': mixed_currency,
         'confidence': round(conf, 3), 'warnings': warnings, 'totalsCheck': totals_check,
     }
     meta.update({k: v for k, v in reader_meta.items() if k in ('sheet', 'reader', 'tables', 'textPages', 'scanned')})

@@ -15,7 +15,7 @@ EXTRA_IN_VENDOR (missing in our books), MISSING_IN_VENDOR (only in ours).
 Response is contract-compatible with the original matchbooks-api."""
 import itertools
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 TOL_DEFAULT = 1.0
 DATE_WINDOW_DEFAULT = 7  # days, for tier-3 same-sign pairing
@@ -538,6 +538,12 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         if va is not None and vb is not None and abs(round(va + vb, 2)) <= tolerance and va != 0:
             claimed.add(id(a))
             claimed.add(id(b))
+            # Flagged on the row so the UI can lift them out of the exception
+            # count. A reversal pair is the vendor's own bookkeeping — it nets
+            # to zero and there is nothing for us to have booked. Counting them
+            # as exceptions is how 66 "missing" items turn out to be 40.
+            a['contraPaired'] = True
+            b['contraPaired'] = True
             note = f"possible vendor-side contra: {a['ref']} ({va}) offsets {b['ref']} ({vb})"
             a['note'] = (a['note'] + ' · ' if a['note'] else '') + 'possible contra with ' + b['ref']
             b['note'] = (b['note'] + ' · ' if b['note'] else '') + 'possible contra with ' + a['ref']
@@ -549,7 +555,20 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                     f'usually carrying reversals, not discrepancies)')
         contra_notes = kept
 
-    order = {'AMOUNT_DIFF': 0, 'EXTRA_IN_VENDOR': 1, 'MISSING_IN_VENDOR': 2, 'MATCHED': 3}
+    # ── contras leave the exception list entirely ────────────────────────
+    # A reversal pair is the vendor's own bookkeeping: booked, then unbooked,
+    # netting to zero. There was never anything for us to record, so it is not
+    # a missing item and must not sit in the same list as one. It gets its own
+    # status — still present, still counted, still adding up, but out of the
+    # way of the rows a human has to act on.
+    n_contra = 0
+    for r in results:
+        if r.get('contraPaired') and r['status'] == 'EXTRA_IN_VENDOR':
+            r['status'] = 'CONTRA_PAIRED'
+            n_contra += 1
+
+    order = {'AMOUNT_DIFF': 0, 'EXTRA_IN_VENDOR': 1, 'MISSING_IN_VENDOR': 2,
+             'CONTRA_PAIRED': 3, 'MATCHED': 4}
     results.sort(key=lambda r: (order.get(r['status'], 9), -(abs(r['diff'] or r['vendorAmt'] or r['zohoAmt'] or 0))))
 
     vendor_net = round(sum(v['amount'] for v in vm.values()) + sum(p['amount'] for p in v_pay), 2)
@@ -558,12 +577,26 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     n_missing = sum(1 for r in results if r['status'] == 'MISSING_IN_VENDOR')
     extra_val = round(sum(r['vendorAmt'] or 0 for r in results if r['status'] == 'EXTRA_IN_VENDOR'), 2)
     missing_val = round(sum(r['zohoAmt'] or 0 for r in results if r['status'] == 'MISSING_IN_VENDOR'), 2)
+    # Pairs cancel to within tolerance, not to exactly zero, so their residue
+    # is carried into the arithmetic rather than dropped. Removing rows from a
+    # reconciliation without accounting for their value is how a total stops
+    # tying.
+    contra_val = round(sum(r['vendorAmt'] or 0 for r in results
+                           if r['status'] == 'CONTRA_PAIRED'), 2)
     diff_val = round(sum(r['vendorAmt'] - r['zohoAmt'] for r in results
                          if r['status'] == 'AMOUNT_DIFF' and r['vendorAmt'] is not None
                          and r['zohoAmt'] is not None), 2)
 
     n_syn = len(v_syn) + len(z_syn)
     syn_notes = []
+    if n_contra:
+        syn_notes.append(
+            f'{n_contra} vendor row(s) — {n_contra // 2} self-cancelling pair(s) '
+            f'— have been moved out of the missing list into their own section. '
+            f'They are postings the vendor reversed in its own ledger, netting '
+            f'to {contra_val:,.2f}. Nothing was ever ours to record. '
+            f'{n_extra} genuine vendor-only row(s) remain, worth '
+            f'{extra_val:,.2f}.')
     if fx_rate:
         lo, hi = min(fx_ratios), max(fx_ratios)
         syn_notes.append(
@@ -590,6 +623,33 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     # receipts, the other its vouchers — so every payment lands unmatched and
     # the reader is left adding a dozen orphan rows by hand. State the
     # aggregate instead: that single number is usually the finding.
+    # ── declared currencies ──────────────────────────────────────────────
+    # The rate inferred from matched rows says the two sides are on different
+    # scales. What each side is actually DENOMINATED in is a separate fact, and
+    # a stated one. Holding both lets each check the other: a rate of 3.67 with
+    # both sides declaring AED is a mis-parse, not an exchange rate.
+    def _declared(rows):
+        c = Counter(r.get('currency') for r in rows if r.get('currency'))
+        return (c.most_common(1)[0][0] if c else None), dict(c)
+
+    v_ccy, v_ccy_counts = _declared(vendor_rows + v_pay)
+    z_ccy, z_ccy_counts = _declared(zoho_rows + z_pay)
+    ccy_notes = []
+    if v_ccy and z_ccy and v_ccy != z_ccy:
+        ccy_notes.append(
+            f'The two statements are in different currencies — the vendor\'s is '
+            f'in {v_ccy}, ours in {z_ccy}. Every total below mixes them, so '
+            f'"net difference" is not a monetary figure: read vendorNet and '
+            f'zohoNet separately, each in its own currency.')
+    if len(v_ccy_counts) > 1:
+        ccy_notes.append('The vendor statement itself mixes currencies: ' +
+                         ', '.join(f'{k}x{n}' for k, n in sorted(
+                             v_ccy_counts.items(), key=lambda kv: -kv[1])) + '.')
+    if len(z_ccy_counts) > 1:
+        ccy_notes.append('Our statement mixes currencies: ' +
+                         ', '.join(f'{k}x{n}' for k, n in sorted(
+                             z_ccy_counts.items(), key=lambda kv: -kv[1])) + '.')
+
     # ── period overlap ───────────────────────────────────────────────────
     # A vendor ledger reaching back two years against a statement covering
     # eight months produces a hundred "missing in our books" rows that are
@@ -648,7 +708,26 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     z_pay_total = round(sum(p['amount'] for p in z_pay), 2)
     pay_gap = round(v_pay_total - z_pay_total, 2)
     pay_unmatched = len(v_pay) + len(z_pay) - 2 * len(pay_pairs)
+    # The declared currencies and the inferred rate must agree. When they do
+    # not, one of them is wrong, and saying which is beyond the engine — but
+    # saying THAT is not.
+    if fx_rate and v_ccy and z_ccy and v_ccy == z_ccy:
+        ccy_notes.insert(0, (
+            f'CONTRADICTION: both statements declare {v_ccy}, yet the matched '
+            f'rows imply a rate of {fx_rate:,.2f} between them. Same-currency '
+            f'books cluster at 1.0. Either a statement is mislabelled or a '
+            f'column has been read wrongly — do not rely on this '
+            f'reconciliation until it is resolved.'))
+    elif v_ccy and z_ccy and v_ccy != z_ccy and not fx_rate:
+        ccy_notes.insert(0, (
+            f'The statements declare different currencies ({v_ccy} vs {z_ccy}) '
+            f'but the matched rows imply a rate of about 1.0, which would mean '
+            f'the figures are on the same scale. One of the two labels is '
+            f'likely wrong.'))
+
     for n in reversed(period_notes):
+        syn_notes.insert(0, n)
+    for n in reversed(ccy_notes):
         syn_notes.insert(0, n)
     if pay_unmatched and abs(pay_gap) > tolerance:
         syn_notes.insert(0, (
@@ -707,6 +786,10 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         'crossYearPairs': cross_year,
         'matched': matched, 'amountDiff': amount_diff,
         'extraInVendor': n_extra, 'missingInVendor': n_missing,
+        # Own status, own section — not part of extraInVendor any more.
+        'contraPaired': n_contra,
+        'contraPairs': n_contra // 2,
+        'contraPairedValue': contra_val,
         'netDifference': round(vendor_net - zoho_net, 2),
         'vendorNet': vendor_net, 'zohoNet': zoho_net,
         'amountDiffValue': diff_val,
@@ -726,6 +809,10 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         # headline of a reconciliation like this
         'vendorChargesAfterWindow': after_window['count'],
         'vendorChargesAfterWindowValue': after_window['value'],
+        'vendorCurrency': v_ccy, 'zohoCurrency': z_ccy,
+        'vendorCurrencyCounts': v_ccy_counts, 'zohoCurrencyCounts': z_ccy_counts,
+        'currencyDeclaredMismatch': bool(v_ccy and z_ccy and v_ccy != z_ccy),
+        'currencyContradiction': bool(fx_rate and v_ccy and z_ccy and v_ccy == z_ccy),
         'currencyMismatch': bool(fx_rate),
         'netDifferenceMeaningful': not fx_rate,
         'impliedRate': round(fx_rate, 4) if fx_rate else None,
@@ -738,8 +825,10 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     }
 
     # ── invariants: fail loudly, never silently wrong ───────────────────
-    assert matched + amount_diff + n_extra + n_missing == len(results), 'row count invariant'
-    recon_gap = round(diff_val + round(matched_resid, 2) + extra_val - missing_val, 2)
+    assert matched + amount_diff + n_extra + n_missing + n_contra == len(results), \
+        'row count invariant'
+    recon_gap = round(diff_val + round(matched_resid, 2) + extra_val
+                      + contra_val - missing_val, 2)
     assert abs(recon_gap - summary['netDifference']) <= 0.02, \
         f"value invariant: {recon_gap} != {summary['netDifference']}"
     summary['invariantsOk'] = True

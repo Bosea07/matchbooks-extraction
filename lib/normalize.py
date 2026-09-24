@@ -2,6 +2,41 @@ import re
 from datetime import datetime, timedelta
 
 CURRENCY = re.compile(r'(AED|SAR|USD|EUR|INR|GBP|Dhs?\.?|درهم|[£€₹$])', re.I)
+
+# ISO codes first: a statement that names its currency is always believed over
+# one that only prints a symbol, because symbols are ambiguous ($ is used by a
+# dozen currencies) and codes are not.
+CURRENCY_CODES = ('AED', 'SAR', 'USD', 'EUR', 'INR', 'GBP', 'QAR', 'KWD',
+                  'OMR', 'BHD', 'PKR', 'LKR', 'EGP')
+_CCY_SYMBOL = {'£': 'GBP', '€': 'EUR', '₹': 'INR', '﷼': 'SAR', 'د.إ': 'AED'}
+_CCY_WORD = {'DIRHAM': 'AED', 'DIRHAMS': 'AED', 'DHS': 'AED', 'DH': 'AED',
+             'RUPEE': 'INR', 'RUPEES': 'INR', 'RS': 'INR',
+             'RIYAL': 'SAR', 'RIYALS': 'SAR', 'DOLLAR': 'USD', 'DOLLARS': 'USD'}
+
+
+def detect_currency(value):
+    """The currency a cell declares, or None.
+
+    Deliberately conservative: a bare '$' is reported as USD because that is
+    what it means in this book's context, but anything unrecognised returns
+    None rather than a guess. Labelling a statement with the wrong currency is
+    worse than labelling it with none."""
+    s = str(value or '')
+    if not s.strip():
+        return None
+    u = s.upper()
+    for c in CURRENCY_CODES:
+        if re.search(r'\b' + c + r'\b', u):
+            return c
+    for w, c in _CCY_WORD.items():
+        if re.search(r'\b' + w + r'\b', u):
+            return c
+    for sym, c in _CCY_SYMBOL.items():
+        if sym in s:
+            return c
+    if '$' in s:
+        return 'USD'
+    return None
 # Order matters: alternation is first-match-wins, so the multi-segment form is
 # tried BEFORE the short one. Otherwise "CODR2026/HO/105" matches the short
 # alternative at "CODR2026" and the rest of the reference is thrown away —

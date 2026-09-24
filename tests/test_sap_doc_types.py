@@ -142,6 +142,49 @@ def test_matching_periods_raise_nothing():
 
 
 # ── contra pairs are claimed once ────────────────────────────────────────
+def test_cancelling_pairs_leave_the_missing_section_entirely():
+    """Honasa's 66 "missing in Zoho" included reversal pairs the vendor had
+    booked and unbooked in its own ledger. They are not items we failed to
+    record, so they do not belong in the same list as ones that are."""
+    vendor = [_row('REAL-1', 5000.0, '2026-03-01'),
+              _row('CLR-A', 1168817.06, '2026-04-15'),
+              _row('CLR-B', -1168817.06, '2026-04-15'),
+              _row('CLR-C', 66516.63, '2026-03-02'),
+              _row('CLR-D', -66516.63, '2026-03-02')]
+    out = reconcile(vendor, [])
+    s = out['summary']
+    assert s['extraInVendor'] == 1, 'contras are still counted as missing'
+    assert s['contraPaired'] == 4
+    assert s['contraPairs'] == 2
+    assert any('self-cancelling' in f for f in s['findings'])
+
+    statuses = [r['status'] for r in out['results']]
+    assert statuses.count('CONTRA_PAIRED') == 4
+    assert statuses.count('EXTRA_IN_VENDOR') == 1
+    missing = [r for r in out['results'] if r['status'] == 'EXTRA_IN_VENDOR']
+    assert missing[0]['ref'] == 'REAL-1'
+
+
+def test_the_totals_still_tie_after_contras_are_moved():
+    """Rows removed from a section must still be accounted for in the
+    arithmetic, or the net difference silently stops matching."""
+    vendor = [_row('REAL-1', 5000.0, '2026-03-01'),
+              _row('CLR-A', 1168817.06, '2026-04-15'),
+              _row('CLR-B', -1168817.06, '2026-04-15')]
+    out = reconcile(vendor, [])
+    s = out['summary']
+    assert s['invariantsOk'] is True
+    assert s['netDifference'] == 5000.0
+    assert len(out['results']) == 3
+
+
+def test_nothing_moves_when_nothing_cancels():
+    vendor = [_row('A-1', 100.0, '2026-03-01'), _row('A-2', 250.0, '2026-03-02')]
+    s = reconcile(vendor, [])['summary']
+    assert s['contraPaired'] == 0
+    assert s['extraInVendor'] == 2
+
+
 def test_one_row_cannot_offset_two_others():
     """400001361 was reported as offsetting both 400001389 and 400001391 —
     the same 342,363.00 stated as two separate findings."""

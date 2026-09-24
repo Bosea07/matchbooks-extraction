@@ -26,6 +26,7 @@ for %%F in (
   tests\test_sap_doc_types.py
   tests\test_year_grouping.py
   tests\test_merged_headers.py
+  tests\test_currency_detection.py
   tests\test_reference_identity.py
   tests\test_currency_and_types.py
   tests\test_unreferenced_rows.py
