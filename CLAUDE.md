@@ -66,7 +66,7 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.14.0
+## Current state — v2.19.0
 
 Run `run_tests.cmd` from the repo root (`.\run_tests.cmd` in PowerShell — it
 will not run without the `.\`).
@@ -82,6 +82,43 @@ Diagnostics, all of which take a file path and print to UTF-8:
 - `tools/recon_workbook.py <file> <vendorSheet> <zohoSheet>` — parses two
   sheets and reconciles them. Use it to check the engine against a
   reconciliation someone did by hand in the same workbook.
+
+### v2.19 — open-items statements (Humantra / KUWA)
+
+Humantra sends a list of what is still unpaid, not a ledger: eight invoices,
+each with `Original (AED)` and `Remaining (AED)`. v2.18 produced **0 matched,
+28 missing, −474,056.20**. The true difference is **−47,418.15**, fully explained.
+
+1. **The reference column is validated against its data.** `Document` held the
+   word "Invoice" on every row, so all eight collapsed into one ref `INVOICE`.
+   A column of type words becomes the type column and the reference is taken
+   from another column the header names (`Shopify Ord.` → `#2391` → `2391`).
+   `_validate_ref_column`
+2. **A labelled non-money column can never be inferred as the amount.** With
+   Original/Remaining unrecognised, the PO Number column won the vote: 1,421.00
+   for a 19,477.50 invoice, reported at 0.9 confidence. `_NOT_MONEY_COL` bars
+   PO/No/Days/Qty/etc., and an amount guessed under a found header row caps
+   confidence at 0.5 with an `AMOUNT COLUMN NOT RECOGNISED` warning
+3. New header key **`open`** (Remaining / Outstanding / Amount due). Rows carry
+   `openAmount`; meta reports `statementKind: open_items`, `openTotal`,
+   `statementDate` (read from the header block)
+4. **Open-items mode** in `reconcile()` — triggered by `openAmount` on vendor
+   rows, needs `balance` on our rows (falls back loudly without it). Compares
+   vendor Remaining against our bill **balance**. Payments are not compared
+   (they are inside both balances). New statuses, both outside the exception
+   count: `SETTLED` (balance 0, not on their list) and `AFTER_STATEMENT` (dated
+   after the statement — excluded from `netDifference` as well)
+5. **Paid after the statement** → category `TIMING` (an AMOUNT_DIFF equal to a
+   payment of ours dated after the statement date)
+6. **Duplicates in our books** → category `DUPLICATE`: two docIds under one
+   bill number (AEB2982 booked under both Humantra DMCC and Humantra UAE), or
+   a one-character twin of the same value and week (AEB2439 / AE82439)
+7. Void bills excluded engine-side, counted (`voidExcluded`)
+8. **Learned prefix (tier 2b)**: once ≥3 pairs agree that one side prefixes
+   the other (`AEB`), it is applied to short numbers the digit forms cannot
+   trust alone. Matches through a prefix say so: `ref match (prefix AEB)`
+9. `/reconcile` and `/export` accept `vendorStatementDate`. The workbook shows
+   set-aside rows as `Set aside: …` and, for open-items, balances not movements
 
 ### v2.14 — merged headers, year grouping (Pharmatrade / SHIFA)
 
@@ -189,6 +226,11 @@ Sample documents are not in the repo; ask before assuming a path.
   Vendor net ties to **−79,037.83**; unbooked vendor charges after our window
   come to **187,320.51** against the manual workbook's 188,341.91, the
   1,021.40 difference being invoice `8066000925` double-counted by hand.
+- **Humantra / KUWA open-items SOA** (29 Sep 2026) — 8 open invoices,
+  Remaining 228,995.35 vs our 276,413.50 → **−47,418.15** = timing +3,822.00
+  (AEB2750 paid 9 Oct) · duplicates −29,400.00 (AEB2982 ×2, AEB2439 twin of
+  AE82439) · not on their list −21,840.00 (AEB2932/2933, under Humantra UAE) ·
+  rounding −0.15. Covered by `tests/test_open_items.py` with the real rows.
 - **SAP B1 GL (Kuwa Food Supplements)** — 6 records, 2 of them negative,
   summing to **−1,748,166.00**. Opening 1,929,045.86 less that movement gives
   180,879.86, the closing balance printed in the file. Covered by

@@ -147,6 +147,62 @@ def test_a_bank_charge_still_pairs():
 
 
 # ── 6 · the payment gap is stated, not left to be added up by hand ───────
+def test_a_split_payment_is_summed_before_matching():
+    """Honasa's KWA-VP-6428 of 125,247.00 arrives from SAP as document
+    1400013121 twice — -46,046.34 and -79,201.14. Matched line by line neither
+    half finds its counterpart and both become exceptions. Summed, they are the
+    payment they always were."""
+    vendor = [_row('1400013121', -46046.34, '2026-08-18', 'Payment'),
+              _row('1400013121', -79201.14, '2026-08-18', 'Payment')]
+    zoho = [_row('1400013121', -125247.00, '2026-08-17', 'Payment')]
+    s = reconcile(vendor, zoho)['summary']
+    assert s['paymentSplitLinesFolded'] == 1
+    assert s['matched'] + s['amountDiff'] == 1
+    assert s['extraInVendor'] == 0, 'a half-payment was left as an exception'
+    assert any('clearing splits' in f for f in s['findings'])
+
+
+def test_unreferenced_payments_are_never_pooled():
+    """Synthetic references are not identities. Two unrelated payments that
+    both failed to parse a reference must not be added together."""
+    vendor = [_row('~ROW4', -100.0, '2026-01-05', 'Payment'),
+              _row('~ROW9', -250.0, '2026-02-05', 'Payment')]
+    s = reconcile(vendor, [])['summary']
+    assert s['paymentSplitLinesFolded'] == 0
+    assert s['extraInVendor'] == 2
+
+
+def test_a_lone_near_payment_still_needs_the_dates_to_agree():
+    """Honasa: vendor payment 46,046.34 of Aug-2026 paired with ours of
+    45,885.48 from Jun-2025 — 160.86 apart, fourteen months apart — because it
+    was the only candidate close in amount. That one bad pair also consumed the
+    row its true counterpart needed, so it cost two exceptions, not one."""
+    vendor = [_row('1400013121', -46046.34, '2026-08-18', 'Payment')]
+    zoho = [_row('092251706610', -45885.48, '2025-06-17', 'Payment')]
+    s = reconcile(vendor, zoho)['summary']
+    assert s['matched'] == 0 and s['amountDiff'] == 0, 'paired across 14 months'
+    assert s['extraInVendor'] == 1 and s['missingInVendor'] == 1
+
+
+def test_a_near_payment_within_the_date_window_still_pairs():
+    """The genuine ones are a day or two apart and must keep working —
+    28,782.64 against 28,840.14, two days, a wire fee."""
+    vendor = [_row('1400015162', -28782.64, '2025-02-13', 'Payment')]
+    zoho = [_row('128251102605', -28840.14, '2025-02-11', 'Payment')]
+    s = reconcile(vendor, zoho)['summary']
+    assert s['matched'] + s['amountDiff'] == 1
+    assert s['extraInVendor'] == 0
+
+
+def test_an_exact_payment_pairs_whatever_the_dates():
+    """No gap to explain, so nothing to corroborate: the same amount to the
+    fils is the same payment, posted on different days."""
+    vendor = [_row('V-1', -50000.00, '2026-08-18', 'Payment')]
+    zoho = [_row('Z-1', -50000.00, '2025-06-17', 'Payment')]
+    s = reconcile(vendor, zoho)['summary']
+    assert s['matched'] == 1
+
+
 def test_unmatchable_payment_lane_reports_its_aggregate():
     vendor = [_row('MR/HO/2026/10520', -5222.48, '2026-02-17', 'Payment'),
               _row('MR/HO/2026/10521', -18819.10, '2026-02-17', 'Payment')]

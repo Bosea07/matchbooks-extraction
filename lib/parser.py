@@ -18,15 +18,30 @@ HEADER_SYNONYMS = {
     'ref':    ['reference', 'ref', 'ref no', 'ref#', 'reference number', 'invoice', 'invoice no',
                'invoice #', 'inv no', 'bill no', 'bill number', 'document', 'document no', 'doc no',
                'voucher', 'voucher no', 'voucher number', 'vch no', 'vch number',
-               'number', 'transaction#', 'transaction no', 'particulars ref'],
+               'number', 'transaction#', 'transaction no', 'particulars ref',
+               # e-commerce suppliers number invoices by store order (Shopify
+               # "#2391"), and that order number is what we book as the bill
+               'order', 'order no', 'order number', 'order #', 'ord', 'ord no',
+               'so no', 'sales order', 'shopify order', 'shopify ord'],
     'type':   ['type', 'transaction type', 'doc type', 'document type', 'txn type',
                'transaction', 'transactions'],
     'debit':  ['debit', 'debits', 'debit amount', 'dr', 'dr amount', 'invoice amount', 'charges'],
     'credit': ['credit', 'credits', 'credit amount', 'cr', 'cr amount', 'payment amount', 'payments'],
     # 'deb cred' is SAP Business One's single signed-amount column
     # ("Deb./Cred. (LC)") — debits positive, credits negative, one column.
+    # An open-items statement lists each unpaid document twice over: what it
+    # was raised for and what is still unpaid. Matched to our books those are
+    # two different comparisons, so they are two different keys. 'open' must
+    # sit before 'amount' — "amount due" is an outstanding figure, not a
+    # document amount.
+    'open':   ['remaining', 'remaining amount', 'remaining balance', 'outstanding',
+               'outstanding amount', 'outstanding balance', 'open amount',
+               'open balance', 'amount due', 'due amount', 'balance due',
+               'pending amount', 'unpaid', 'unpaid amount', 'amount outstanding'],
     'amount': ['amount', 'amount aed', 'net amount', 'value', 'total', 'total amount',
                'amount (aed)', 'aed', 'gross amount', 'balance amount',
+               'original', 'original amount', 'invoice value', 'document amount',
+               'doc amount', 'original value',
                'deb cred', 'debit credit', 'dr cr', 'signed amount'],
     'desc':   ['description', 'narration', 'details', 'particulars', 'memo', 'remarks'],
     'currency': ['currency', 'document currency', 'currency code', 'curr', 'ccy',
@@ -39,6 +54,9 @@ HEADER_SYNONYMS = {
 # transactions summed to 5.1m instead of its true -1.75m movement. Nothing
 # about the output looks wrong, which is what makes it dangerous.
 _BALANCE_COL = re.compile(r'\b(cumulative|running|closing|opening)\b|\bbalance\b', re.I)
+
+
+_STMT_DATE = re.compile(r'\b(statement\s+date|as\s+(?:of|at|on)|date\s+of\s+statement)\b\s*:?', re.I)
 
 
 def _match_header(cell):
@@ -136,6 +154,73 @@ def _compacted_colmap(header_cells):
     return out
 
 
+# Labels that name a number which is not money. A column of PO numbers or
+# days-overdue is numeric in every row and, left to a vote, wins the amount
+# column outright — the Humantra SOA was read with its PO numbers as invoice
+# values (1,421.00 for a 19,477.50 invoice) and reported 0.9 confidence.
+_NOT_MONEY_COL = re.compile(
+    r'\b(days?|od|qty|quantity|no|nos|number|num|po|age|aging|ageing|bucket|'
+    r'rate|%|percent|pcs|units?|lpo|order|ord|ref|reference|code|id)\b', re.I)
+
+# Words that name a document TYPE. A column full of them is a type column
+# whatever its header says ("Document" holding "Invoice" on every row).
+_TYPE_WORD = re.compile(
+    r'^\s*(tax\s+)?(invoices?|bills?|payments?(\s+(made|received))?|receipts?|'
+    r'credit\s*notes?|debit\s*notes?|journals?|refunds?|sales?\s*returns?|'
+    r'opening\s+balance|advance|credits?|debits?)\s*$', re.I)
+
+
+def _column_values(grid, start, j, n=30):
+    out = []
+    for r in grid[start:start + 60]:
+        if not any(c not in (None, '') for c in r):
+            continue
+        if j < len(r) and r[j] not in (None, ''):
+            out.append(r[j])
+        if len(out) >= n:
+            break
+    return out
+
+
+def _validate_ref_column(grid, header_row, colmap, warnings):
+    """A header that says 'Document' may hold document numbers or document
+    TYPES. Read the data before trusting the label: when the column is mostly
+    type words it becomes the type column, and the reference is looked for in
+    the other columns the header names as one."""
+    j = colmap.get('ref')
+    if j is None or header_row < 0:
+        return colmap
+    vals = _column_values(grid, header_row + 1, j)
+    if not vals:
+        return colmap
+    typed = sum(1 for v in vals if _TYPE_WORD.match(str(v)))
+    if typed < max(2, 0.6 * len(vals)):
+        return colmap
+    colmap = dict(colmap)
+    del colmap['ref']
+    if 'type' not in colmap:
+        colmap['type'] = j
+    used = set(colmap.values())
+    head = grid[header_row]
+    best = None
+    for k, c in enumerate(head):
+        if k in used or _match_header(c) != 'ref':
+            continue
+        cv = _column_values(grid, header_row + 1, k)
+        good = sum(1 for v in cv if str(v).strip().lstrip('#').strip()
+                   and not _TYPE_WORD.match(str(v)))
+        if cv and good >= 0.6 * len(cv):
+            best = k
+            break
+    if best is not None:
+        colmap['ref'] = best
+    warnings.append(
+        f"Column '{head[j]}' holds document types, not references — used as the "
+        f"type column" + (f"; references read from '{head[best]}'" if best is not None
+                          else '; no other reference column found'))
+    return colmap
+
+
 def _infer_columns(grid, start, known=None, header_row=None):
     known = known or {}
     from collections import Counter
@@ -149,6 +234,10 @@ def _infer_columns(grid, start, known=None, header_row=None):
     if header_row is not None and 0 <= header_row < len(grid):
         for j, c in enumerate(grid[header_row]):
             if c and _BALANCE_COL.search(str(c)):
+                banned.add(j)
+            # a labelled column that says it is something other than money
+            elif c and (_NOT_MONEY_COL.search(str(c)) or
+                        _match_header(c) in ('date', 'ref', 'type', 'desc', 'currency')):
                 banned.add(j)
     for r in rows:
         for j in range(width):
@@ -189,12 +278,24 @@ def parse_grid(grid, reader_meta=None):
             alt_score = _colmap_score(grid, header_row + 1, alt)
             if alt_score > lit_score + 0.5:
                 colmap, realigned = alt, True
+    pre_warnings = []
+    colmap = _validate_ref_column(grid, header_row, colmap, pre_warnings)
+    # A statement with only an outstanding column states nothing else to use:
+    # its outstanding figure IS the amount.
+    if 'open' in colmap and 'amount' not in colmap and \
+            not ('debit' in colmap or 'credit' in colmap):
+        colmap['amount'] = colmap['open']
     inferred = False
+    amount_guessed_under_header = None
     if header_row < 0 or ('amount' not in colmap and not ('debit' in colmap and 'credit' in colmap)):
         inferred_map = _infer_columns(grid, header_row + 1 if header_row >= 0 else 0,
                                       known=colmap, header_row=header_row)
         if 'amount' in inferred_map:
             inferred = True
+            if header_row >= 0 and 'amount' not in colmap:
+                lab = grid[header_row][inferred_map['amount']] \
+                    if inferred_map['amount'] < len(grid[header_row]) else None
+                amount_guessed_under_header = str(lab or f"column {inferred_map['amount'] + 1}")
             for k, v in inferred_map.items():
                 colmap.setdefault(k, v)
             if header_row < 0:
@@ -215,7 +316,7 @@ def parse_grid(grid, reader_meta=None):
             if c and _BALANCE_COL.search(str(c)):
                 balance_cols.add(j)
 
-    records, warnings = [], []
+    records, warnings = [], list(pre_warnings)
     data_rows = invalid_rows = unreferenced = 0
     sign_conflicts = []
     doc_total = None
@@ -328,6 +429,8 @@ def parse_grid(grid, reader_meta=None):
                 # ("Shortages"), never the whole narration
                 lead = clean_cell(s_ref).strip().split('\n')[0].strip().split('\t')[0].strip()
                 lead = lead.split('  ')[0].strip()
+                # "#2391" — a store order number. The hash is punctuation.
+                lead = lead.lstrip('#').strip()
                 # A bare 4-9 digit run in the reference cell of a dated row is
                 # a document number, not money: the total-row guard above has
                 # already removed the rows where a number there IS an amount.
@@ -419,6 +522,14 @@ def parse_grid(grid, reader_meta=None):
                 sign_conflicts.append((idx + 1, ttype, round(amount, 2), str(raw_ref)[:40]))
                 invalid_rows += 1
                 continue
+        open_amt = None
+        if 'open' in colmap:
+            open_amt = parse_amount(cell(row, 'open'))
+            if open_amt is None:
+                open_amt = 0.0
+            # same direction as the document it belongs to
+            if amount is not None and amount < 0 and open_amt > 0:
+                open_amt = -open_amt
         row_ccy = detect_currency(cell(row, 'currency')) if has_ccy_col else None
         if row_ccy:
             ccy_counts[row_ccy] = ccy_counts.get(row_ccy, 0) + 1
@@ -428,6 +539,7 @@ def parse_grid(grid, reader_meta=None):
             'date': raw_date or (iso or ''), 'dateISO': iso,
             'type': ttype, 'amount': round(amount, 2), 'row': idx + 1,
             'currency': row_ccy,
+            **({'openAmount': round(open_amt, 2)} if open_amt is not None else {}),
         })
 
     seen, deduped, dropped = set(), [], 0
@@ -449,6 +561,15 @@ def parse_grid(grid, reader_meta=None):
     if inferred:
         conf -= 0.10
         warnings.append('Headers not found — columns inferred from data shape')
+    if amount_guessed_under_header:
+        # The header row was found, yet no column in it says "amount". Taking
+        # the most numeric column instead is a guess, and a guess must never
+        # look like a 0.9-confidence read.
+        conf = min(conf, 0.5)
+        warnings.append(
+            f"AMOUNT COLUMN NOT RECOGNISED: the header names no amount column, so "
+            f"figures were read from '{amount_guessed_under_header}'. Check one row "
+            f"against the document before reconciling.")
     if realigned:
         warnings.append(
             'Header cells are merged — column labels sit right of their own '
@@ -526,8 +647,39 @@ def parse_grid(grid, reader_meta=None):
         warnings.append('PDF appears scanned (no extractable text)')
     conf = max(0.0, min(1.0, conf))
 
+    # The date the statement is drawn up to. An open-items statement lists
+    # only what was unpaid ON that date, so anything we booked or paid after
+    # it cannot appear there — the reconciliation needs to know where that
+    # line falls, and the last posting date is only a lower bound for it.
+    statement_date = None
+    stop = header_row if header_row > 0 else 25
+    for r in grid[:stop]:
+        for k, c in enumerate(r):
+            if c and _STMT_DATE.search(str(c)):
+                tail = str(c)[_STMT_DATE.search(str(c)).end():]
+                cand = [tail] + [x for x in r[k + 1:] if x not in (None, '')][:2]
+                for x in cand:
+                    iso, _ = parse_date(str(x).strip(' :') if isinstance(x, str) else x)
+                    if iso:
+                        statement_date = iso
+                        break
+            if statement_date:
+                break
+        if statement_date:
+            break
+    open_items = 'open' in colmap and any('openAmount' in r for r in records)
+    if open_items:
+        warnings.append(
+            'Open-items statement: each row carries an outstanding balance, so '
+            'it will be reconciled against what is still unpaid in our books, '
+            'not against every bill and payment ever posted.')
+
     meta = {
         'headerRow': header_row, 'totalRows': len(grid),
+        'statementKind': 'open_items' if open_items else 'ledger',
+        'statementDate': statement_date,
+        'openCol': colmap.get('open', -1),
+        'openTotal': round(sum(r.get('openAmount', 0) for r in records), 2) if open_items else None,
         'dateCol': colmap.get('date', -1), 'refCol': colmap.get('ref', -1),
         'typeCol': colmap.get('type', -1), 'debitCol': colmap.get('debit', -1),
         'creditCol': colmap.get('credit', -1), 'amountCol': colmap.get('amount', -1),

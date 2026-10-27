@@ -46,11 +46,23 @@ def extract(filename: str, data: bytes, text_hint: str | None = None):
     if not m:
         raise ValueError('Claude returned no JSON')
     payload = json.loads(m.group(0))
-    records = _validate(payload.get('records', []))
+    records, counts = _validate(payload.get('records', []))
     if not records:
         raise ValueError('Claude returned no valid records')
+    warnings = []
+    if counts['dropped']:
+        warnings.append(f"{counts['dropped']} row(s) returned by the model were "
+                        f"unreadable and discarded")
+    if counts['unreferenced']:
+        warnings.append(f"{counts['unreferenced']} row(s) had no reference and were "
+                        f"kept with a synthetic id — matched by amount only")
     meta = {'engine': 'claude', 'model': MODEL,
             'documentTotal': payload.get('documentTotal'),
+            'rowsReturned': counts['returned'], 'rowsKept': counts['kept'],
+            'invalidRows': counts['dropped'],
+            'unreferencedRows': counts['unreferenced'],
+            'rowsAccountedFor': counts['kept'] + counts['dropped'] == counts['returned'],
+            'warnings': warnings,
             'confidence': 0.9}
     total = payload.get('documentTotal')
     if total is not None:
@@ -62,16 +74,29 @@ def extract(filename: str, data: bytes, text_hint: str | None = None):
     return records, meta
 
 def _validate(rows):
+    """Validate Claude's rows under the same rule as the parser: nothing is
+    discarded silently.
+
+    This used to `continue` past any row without a reference — the exact bug
+    fixed in the deterministic parser, where unreferenced rows are kept with a
+    synthetic '~ROW' id and reported. A statement line with real money on it
+    and no readable reference is still money, and dropping it produced totals
+    that looked clean and were short."""
     from .normalize import norm_ref
-    out = []
-    for r in rows[:MAX_ROWS]:
+    out, dropped, unreferenced = [], 0, 0
+    for i, r in enumerate(rows[:MAX_ROWS]):
         try:
             ref = norm_ref(r.get('ref'))
             amount = float(r.get('amount'))
         except (TypeError, ValueError):
+            dropped += 1
             continue
         if not ref:
-            continue
+            if round(amount, 2) == 0.0:
+                dropped += 1
+                continue
+            ref = f'~ROW{i + 1}'
+            unreferenced += 1
         iso = r.get('dateISO')
         if iso and not re.match(r'^\d{4}-\d{2}-\d{2}$', str(iso)):
             iso = None
@@ -79,4 +104,5 @@ def _validate(rows):
                     'date': str(r.get('date', '') or ''), 'dateISO': iso,
                     'type': str(r.get('type', 'Invoice') or 'Invoice'),
                     'amount': round(amount, 2), 'row': None})
-    return out
+    return out, {'returned': len(rows), 'kept': len(out),
+                 'dropped': dropped, 'unreferenced': unreferenced}

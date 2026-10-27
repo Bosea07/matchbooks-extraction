@@ -44,6 +44,16 @@ RATE = '0.0000;;"-"'
 DATE_FMT = 'dd-mmm-yy'
 
 
+
+# Engine statuses that are deliberately NOT exceptions, with the label the
+# workbook shows for them.
+SET_ASIDE = {
+    'SETTLED': 'Set aside: settled',
+    'AFTER_STATEMENT': 'Set aside: after statement date',
+    'CONTRA_PAIRED': 'Set aside: vendor contra',
+    'BEFORE_PERIOD': 'Set aside: before period',
+}
+
 def _headers(ws, row, labels, widths):
     for i, label in enumerate(labels, 1):
         c = ws.cell(row=row, column=i, value=label)
@@ -191,7 +201,11 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
             st = (f'=IF(OR($A{R}="",$E{R}=""),IF($A{R}="","Only in our books",'
                   f'"Only on vendor statement"),'
                   f'IF(ABS($I{R})<=Summary!$C$13,"Matched","Amount difference"))')
-        c = mp.cell(row=R, column=12, value=st)
+        # Rows the engine has already taken out of the exception list keep
+        # their own label: a formula cannot see that a bill was settled or
+        # dated after the statement, and would call it "Only in our books".
+        fixed = SET_ASIDE.get(r.get('status'))
+        c = mp.cell(row=R, column=12, value=fixed or st)
         c.font = BOLD
         n = mp.cell(row=R, column=13, value=(r.get('note') or '')[:240])
         n.font = MUTED
@@ -256,6 +270,11 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
          'On their statement, not in our books.'),
         ('Only in our books', 'Only in our books',
          'In our books, not on their statement.'),
+        # one row for everything the engine set aside — the layout below is
+        # fixed at row 12, so this block cannot grow past five lines
+        ('Set aside (not exceptions)', 'Set aside*',
+         'Settled, after the statement date, vendor contras or before the period. '
+         'Reason on each Mapping row.'),
     ]
     r0 = 6
     for i, (label, status, meaning) in enumerate(OUTCOME):
@@ -311,6 +330,19 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
         ('Vendor statement, total movement', f"='Vendor SOA Extraction'!$G${vt}"),
         ('Our books, total movement', f"='Zoho Extraction'!$G${zt}"),
     ]
+    if summary.get('statementKind') == 'open_items':
+        # An open-items statement is compared balance to balance. The
+        # extraction tabs list original document values, so their totals are
+        # not the comparison — the Mapping's outstanding amounts are, less our
+        # bills dated after the statement was drawn up.
+        aside = SET_ASIDE['AFTER_STATEMENT']
+        rows_bal = [
+            ('Vendor statement, total outstanding',
+             f'=SUM(Mapping!$D${first}:$D${last})'),
+            (f"Our books, outstanding to {summary.get('statementDate') or 'statement date'}",
+             f'=SUM(Mapping!$H${first}:$H${last})'
+             f'-SUMIF(Mapping!$L${first}:$L${last},"{aside}",Mapping!$H${first}:$H${last})'),
+        ]
     for i, (label, f) in enumerate(rows_bal):
         R = 18 + i
         sm.cell(row=R, column=1, value=label).font = BODY
