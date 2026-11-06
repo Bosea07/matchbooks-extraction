@@ -263,15 +263,173 @@ def _infer_columns(grid, start, known=None, header_row=None):
                 break
     return colmap
 
-def parse_grid(grid, reader_meta=None):
+# ── sectioned statements ────────────────────────────────────────────────
+# Some suppliers send one sheet in blocks — "Invoice Summary", "Payments",
+# "Credit Notes" — each under its own header row, with its own column order.
+# Valeo-Kuwa's template keeps the invoice amount in column 4 and the payment
+# amount in column 3. Read through the first header alone, all 7 payments lost
+# their amount and all 13 credit notes were rejected as negative invoices.
+_SECTION_KINDS = (
+    (re.compile(r'credit\s*notes?|\bcn\b', re.I), 'Credit Note'),
+    (re.compile(r'debit\s*notes?|\bdn\b', re.I), 'Debit Note'),
+    (re.compile(r'\bpayments?\b|\breceipts?\b|\bremittances?\b', re.I), 'Payment'),
+    (re.compile(r'\binvoices?\b|\bbills?\b', re.I), 'Invoice'),
+)
+_MONEY_KEYS = ('amount', 'debit', 'credit', 'open')
+# In a payment or credit-note block, a second document-number column naming an
+# invoice or bill says what the row SETTLES — never what the row is.
+_SETTLES_COL = re.compile(r'\b(invoice|bill|against|applied)\b', re.I)
+
+
+def _section_kind(text):
+    for rx, kind in _SECTION_KINDS:
+        if rx.search(text or ''):
+            return kind
+    return None
+
+
+def _is_text_only(row):
+    cells = [c for c in row if c not in (None, '')]
+    return bool(cells) and all(parse_amount(c) is None and not parse_date(c)[0]
+                               for c in cells)
+
+
+def _find_sections(grid):
+    """Header rows that each start a block of their own. Two or more with
+    different layouts make a sectioned statement; a header repeated on every
+    PDF page has one layout and is not one."""
+    found = []
+    for i, row in enumerate(grid):
+        if not _is_text_only(row):
+            continue
+        colmap, hits = _map_row(row)
+        if hits < 2 or 'ref' not in colmap or 'date' not in colmap \
+                or not any(k in colmap for k in _MONEY_KEYS):
+            continue
+        nxt = next((r for r in grid[i + 1:i + 4] if any(c not in (None, '') for c in r)), None)
+        if not nxt or not any(parse_date(c)[0] for c in nxt if c not in (None, '')):
+            continue
+        # One amount column per block, taken from the header that says
+        # "amount". Debit/credit semantics come from the block, not the label —
+        # "Credit Note Amount" is not a credit column holding a debit.
+        money = [j for k, j in colmap.items() if k in _MONEY_KEYS]
+        said = [j for j in money if re.search(r'amount|value|total', str(row[j]), re.I)]
+        amt = (said or money)[0]
+        colmap = {k: j for k, j in colmap.items() if k not in _MONEY_KEYS}
+        colmap['amount'] = amt
+        title = ''
+        for r in reversed(grid[max(0, i - 2):i]):
+            cells = [str(c).strip() for c in r if c not in (None, '')]
+            if len(cells) == 1 and _is_text_only(r):
+                title = cells[0]
+                break
+        header_text = ' '.join(str(c) for c in row if c not in (None, ''))
+        kind = _section_kind(title) or _section_kind(header_text)
+        settles = []
+        if kind and kind not in DEBIT_TYPES:
+            settles = [j for j, c in enumerate(row)
+                       if c not in (None, '') and j != colmap['ref']
+                       and _match_header(c) == 'ref' and _SETTLES_COL.search(str(c))]
+        found.append({'headerRow': i, 'colmap': colmap, 'title': title or header_text,
+                      'type': kind, 'settles': settles,
+                      'layout': re.sub(r'\s+', ' ', header_text.lower())})
+    if len({s['layout'] for s in found}) < 2:
+        return []
+    return found
+
+
+def _parse_sections(grid, reader_meta, sections):
+    """Parse each block under its own header, then report as one statement.
+    Row numbers stay those of the sheet: every block is parsed against the
+    whole grid with the other blocks blanked out."""
+    first = sections[0]['headerRow']
+    records, metas = [], []
+    for k, s in enumerate(sections):
+        end = sections[k + 1]['headerRow'] if k + 1 < len(sections) else len(grid)
+        sub = [row if (i < first or s['headerRow'] <= i < end) else []
+               for i, row in enumerate(grid)]
+        recs, m = parse_grid(sub, reader_meta, _section=s)
+        records += recs
+        metas.append((s, recs, m))
+
+    meta = dict(metas[0][2])
+    for key in ('dataRows', 'invalidRows', 'unreferencedRows', 'signConflicts'):
+        meta[key] = sum(m[key] for _, _, m in metas)
+    meta['rowsAccountedFor'] = all(m['rowsAccountedFor'] for _, _, m in metas)
+    rows = meta['dataRows']
+    meta['confidence'] = round(
+        sum(m['confidence'] * m['dataRows'] for _, _, m in metas) / rows, 3) if rows else 0.0
+    ccy = {}
+    for _, _, m in metas:
+        for c, n in (m.get('currencyCounts') or {}).items():
+            ccy[c] = ccy.get(c, 0) + n
+    meta['currencyCounts'] = ccy
+    meta['currency'] = max(ccy, key=ccy.get) if ccy else None
+    meta['mixedCurrency'] = len(ccy) > 1
+    meta['totalsCheck'] = next((m['totalsCheck'] for _, _, m in metas if m['totalsCheck']), None)
+    if any(m['statementKind'] == 'open_items' for _, _, m in metas):
+        meta['statementKind'] = 'open_items'
+        meta['openTotal'] = round(sum(m['openTotal'] or 0 for _, _, m in metas), 2)
+
+    warnings = [
+        f'Sectioned statement: {len(sections)} blocks, each read under its own '
+        f'header — ' + ' · '.join(
+            f"{s['title']} (row {s['headerRow'] + 1}: {len(recs)} "
+            f"{(s['type'] or 'row').lower()}{'s' if len(recs) != 1 else ''}, "
+            f"{sum(r['amount'] for r in recs):,.2f})"
+            for s, recs, _ in metas)]
+    seen = set()
+    for s, _, m in metas:
+        for w in m['warnings']:
+            if w in seen:
+                continue
+            seen.add(w)
+            warnings.append(f"[{s['title']}] {w}")
+    if len(ccy) > 1:
+        warnings.append('This statement mixes currencies across its blocks: ' +
+                        ', '.join(f'{c}x{n}' for c, n in ccy.items()) +
+                        '. Totals add them together and are NOT a monetary figure.')
+    # One document number listed twice at different values. Both rows are
+    # kept — the statement says both — but they will be summed under one
+    # reference, so the reader has to know it happened.
+    by_ref = {}
+    for r in records:
+        if not r['ref'].startswith('~'):
+            by_ref.setdefault((r['ref'], r['type']), []).append(r)
+    twins = [(ref, rs) for (ref, _), rs in by_ref.items()
+             if len({x['amount'] for x in rs}) > 1]
+    if twins:
+        listed = []
+        for ref, rs in twins[:4]:
+            at = ', '.join(f"row {x['row']} {x['amount']:,.2f}" for x in rs)
+            listed.append(f'{ref} ({at})')
+        warnings.append(
+            f'{len(twins)} document number(s) listed more than once at different '
+            f'amounts — kept, and summed under one reference when reconciled: '
+            + '; '.join(listed))
+    meta['warnings'] = warnings
+    meta['sections'] = [
+        {'title': s['title'], 'type': s['type'], 'headerRow': s['headerRow'] + 1,
+         'records': len(recs), 'total': round(sum(r['amount'] for r in recs), 2)}
+        for s, recs, _ in metas]
+    return records, meta
+
+
+def parse_grid(grid, reader_meta=None, _section=None):
     reader_meta = reader_meta or {}
     grid = [list(r) for r in grid if r is not None]
-    header_row, colmap = find_header(grid)
+    if _section is None:
+        sections = _find_sections(grid)
+        if sections:
+            return _parse_sections(grid, reader_meta, sections)
+        header_row, colmap = find_header(grid)
+    else:
+        header_row, colmap = _section['headerRow'], dict(_section['colmap'])
     realigned = False
     # Merged header cells push every label right of its own data. Trust the
     # data: if re-indexing the labels densely fits it better, the header was
     # merged and the literal positions are wrong.
-    if header_row >= 0 and colmap and header_row < len(grid):
+    if _section is None and header_row >= 0 and colmap and header_row < len(grid):
         alt = _compacted_colmap(grid[header_row])
         if alt and alt != colmap:
             lit_score = _colmap_score(grid, header_row + 1, colmap)
@@ -452,10 +610,17 @@ def parse_grid(grid, reader_meta=None):
                     r'[A-Za-z0-9][A-Za-z0-9._/#-]{1,15}(?: [A-Za-z0-9._/#-]{2,15})?', lead)
                 if shaped and (parse_amount(lead) is None or numeric_docno):
                     aliases = [norm_ref(lead)]
+        # what a payment or credit note settles, from the column that says so
+        settles = (_section or {}).get('settles', ())
+        for jj in settles:
+            if jj < len(row) and row[jj] not in (None, ''):
+                for t in ref_candidates(unwrap_pdf_breaks(str(row[jj])))[0]:
+                    if t not in allocation and t not in aliases:
+                        allocation.append(t)
         # sweep the rest of the row for identifiers the reference cell missed
         if len(aliases) < 2:
             for jj, c in enumerate(row):
-                if c in (None, '') or jj == colmap.get('ref'):
+                if c in (None, '') or jj == colmap.get('ref') or jj in settles:
                     continue
                 if jj in (colmap.get('date'), colmap.get('amount'),
                           colmap.get('debit'), colmap.get('credit')):
@@ -494,6 +659,10 @@ def parse_grid(grid, reader_meta=None):
         pref_type = type_from_ref(ref)
         if pref_type:
             ttype = pref_type
+        # A block titled "Payments" or "Credit Notes" states the type of every
+        # row in it, unless the block has a type column of its own.
+        if _section and _section.get('type') and raw_type in (None, ''):
+            ttype = _section['type']
         # Statements that label a row "Payment Made" put the figure in a
         # payments column as a positive number, so it has to be negated. A
         # ledger posting document-type CODES does not: its amount column is

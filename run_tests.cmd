@@ -32,6 +32,7 @@ for %%F in (
   tests\test_currency_and_types.py
   tests\test_unreferenced_rows.py
   tests\test_open_items.py
+  tests\test_sectioned_statements.py
 ) do (
   echo ------------------------------------------------------------
   echo  %%F

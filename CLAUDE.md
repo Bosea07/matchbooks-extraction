@@ -66,7 +66,7 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.19.0
+## Current state — v2.20.0
 
 Run `run_tests.cmd` from the repo root (`.\run_tests.cmd` in PowerShell — it
 will not run without the `.\`).
@@ -82,6 +82,29 @@ Diagnostics, all of which take a file path and print to UTF-8:
 - `tools/recon_workbook.py <file> <vendorSheet> <zohoSheet>` — parses two
   sheets and reconciles them. Use it to check the engine against a
   reconciliation someone did by hand in the same workbook.
+
+### v2.20 — sectioned statements (Valeo-Kuwa SOA template)
+
+One sheet in three blocks — Invoice Summary / Payments / Credit Notes — each
+under its own header row and in its own column order (invoice amount in
+column 4, payment amount in column 3). v2.19 read it all through the first
+header: 39 of 59 rows, all 7 payments lost, all 13 credit notes rejected as
+negative invoices.
+
+1. `_find_sections` — two or more header rows with **different** layouts make
+   a sectioned statement. A header reprinted on every PDF page has one layout
+   and is not one; its rows keep their own type column
+2. Each block is parsed under its own header (`parse_grid(..., _section=)`),
+   against the whole grid with other blocks blanked, so row numbers stay the
+   sheet's. One amount column per block, from the header that says "amount" —
+   "Credit Note Amount" is not a credit column
+3. The block's type comes from its title, or its header words when a PDF
+   extractor loses the title; it applies only when the block has no type column
+4. A payment/credit-note block's "Invoice Number" column is what the row
+   **settles** → `allocationRefs`, never `refAliases`
+5. A document number listed twice at different amounts is kept and warned
+   about (MF/MH26-27/2953 at 32,229.63 and 29,166.56). `meta.sections` reports
+   each block's count and total
 
 ### v2.19 — open-items statements (Humantra / KUWA)
 
@@ -231,6 +254,10 @@ Sample documents are not in the repo; ask before assuming a path.
   (AEB2750 paid 9 Oct) · duplicates −29,400.00 (AEB2982 ×2, AEB2439 twin of
   AE82439) · not on their list −21,840.00 (AEB2932/2933, under Humantra UAE) ·
   rounding −0.15. Covered by `tests/test_open_items.py` with the real rows.
+- **Valeo-Kuwa SOA template** (INR, sectioned) — 59 records: 39 invoices
+  **4,830,591.33**, 7 payments **−2,650,656.72**, 13 credit notes
+  **−481,761.68**. Invoices + credit notes = **4,348,829.65**, the sheet's
+  column-4 total. Covered by `tests/test_sectioned_statements.py`.
 - **SAP B1 GL (Kuwa Food Supplements)** — 6 records, 2 of them negative,
   summing to **−1,748,166.00**. Opening 1,929,045.86 less that movement gives
   180,879.86, the closing balance printed in the file. Covered by
