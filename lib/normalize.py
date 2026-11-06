@@ -37,6 +37,37 @@ def detect_currency(value):
     if '$' in s:
         return 'USD'
     return None
+
+
+# Where a statement states no currency, the issuer's country often says it for
+# them. Only countries none of our six entities is in: every statement addressed
+# to us carries a UAE or KSA address, so those markers identify the reader, not
+# the issuer. Two independent markers are required; one is a coincidence.
+_COUNTRY_MARKERS = {
+    'INR': [
+        ('CIN', re.compile(r'\bCIN\s*[:#.]?\s*[ULul]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b')),
+        ('GSTIN', re.compile(r'\bGSTIN\b|\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b')),
+        ('PAN', re.compile(r'\bPAN\s*(?:No\.?)?\s*[:#]?\s*[A-Z]{5}\d{4}[A-Z]\b')),
+        ('Pvt Ltd', re.compile(r'\bPvt\.?\s*Ltd\b|\bPrivate\s+Limited\b', re.I)),
+        ('Indian state', re.compile(
+            r'\b(Maharashtra|Karnataka|Gujarat|Tamil\s+Nadu|Telangana|Haryana|'
+            r'Uttar\s+Pradesh|West\s+Bengal|Kerala|Rajasthan|Punjab|New\s+Delhi|'
+            r'Andhra\s+Pradesh|Madhya\s+Pradesh)\b', re.I)),
+        ('India', re.compile(r'\bIndia\b', re.I)),
+        ('lakh/crore', re.compile(r'\b(lakhs?|crores?)\b', re.I)),
+    ],
+}
+
+
+def guess_currency_from_issuer(cells):
+    """(code, [markers]) when the document's issuer is identifiably in a
+    country whose currency is not ours, else (None, [])."""
+    text = ' '.join(str(c) for c in cells if c not in (None, ''))
+    for code, markers in _COUNTRY_MARKERS.items():
+        found = [name for name, rx in markers if rx.search(text)]
+        if len(found) >= 2:
+            return code, found
+    return None, []
 # Order matters: alternation is first-match-wins, so the multi-segment form is
 # tried BEFORE the short one. Otherwise "CODR2026/HO/105" matches the short
 # alternative at "CODR2026" and the rest of the reference is thrown away —
@@ -201,7 +232,8 @@ def type_from_ref(ref):
 _TYPE_CANON = [
     # returns before sales, so "Sales Return" is not read as a sale
     (re.compile(r'^(sales?\s*returns?|purchase\s*returns?|returns?)\b', re.I), 'Credit Note'),
-    (re.compile(r'^(payments?\s*made|payments?|receipts?|rcpt|pmt)\b', re.I), 'Payment'),
+    # "reciept" is how Seven Turns' Tally spells its receipt voucher type
+    (re.compile(r'^(payments?\s*made|payments?|receipts?|reciepts?|rcpt|pmt)\b', re.I), 'Payment'),
     (re.compile(r'^(credits?\s*notes?|credits?|cn|crn)\b', re.I), 'Credit Note'),
     (re.compile(r'^(debits?\s*notes?|dn)\b', re.I), 'Debit Note'),
     (re.compile(r'^(bills?)\b', re.I), 'Bill'),
@@ -259,6 +291,19 @@ def canon_type(value):
     for rx, t in _TYPE_CANON:
         if rx.match(s):
             return t
+    # Tally voucher types carry a branch prefix: "MH-SALES EXPORT",
+    # "MH-RECIEPT", "MH-EXPORT-CN". Left unmapped, receipts never reach the
+    # payment lane.
+    m = re.match(r'^[A-Z]{1,4}[-_](?=[A-Za-z])', s)
+    if m:
+        rest = s[m.end():]
+        t = canon_type(rest)
+        if t != rest:
+            return t
+        if re.search(r'[\s-](cn|crn|credit\s*notes?)$', rest, re.I):
+            return 'Credit Note'
+        if re.search(r'[\s-](dn|debit\s*notes?)$', rest, re.I):
+            return 'Debit Note'
     return s
 
 def infer_type(row_text):

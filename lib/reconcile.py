@@ -39,6 +39,9 @@ NEAREST_HINT_PCT = 0.25   # how far apart two unmatched rows can be and
                           # still be worth pointing at each other
 SCALE_BAND = (0.80, 1.25)  # median ratio inside this band = same currency
 MIN_RATE_SAMPLE = 3        # reference-matched rows needed to trust a rate
+# Units per USD of the currencies pegged to it. Between two of these the rate
+# is a constant, never an estimate: AED/SAR is 0.9793 on every day of the year.
+PEGGED_PER_USD = {'USD': 1.0, 'AED': 3.6725, 'SAR': 3.75}
 
 
 # ── reference canon helpers ─────────────────────────────────────────────
@@ -206,7 +209,7 @@ def _median(xs):
     return xs[n // 2] if n % 2 else round((xs[n // 2 - 1] + xs[n // 2]) / 2, 6)
 
 
-def _detect_scale(pairs, vm, zm):
+def _detect_scale(pairs, vm, zm, min_sample=MIN_RATE_SAMPLE):
     """Infer whether the two statements are denominated differently.
 
     Neither a Tally ledger nor a Zoho SOA reliably prints a currency code next
@@ -220,7 +223,7 @@ def _detect_scale(pairs, vm, zm):
         if not va or not za or (va >= 0) != (za >= 0):
             continue
         ratios.append(abs(va) / abs(za))
-    if len(ratios) < MIN_RATE_SAMPLE:
+    if len(ratios) < min_sample:
         return None, ratios
     med = _median(ratios)
     if med is None or SCALE_BAND[0] <= med <= SCALE_BAND[1]:
@@ -233,7 +236,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
               rate_tolerance=RATE_TOL_DEFAULT,
               pair_tolerance_pct=PAIR_TOL_PCT_DEFAULT,
               vendor_states_total=None, zoho_states_total=None,
-              vendor_statement_date=None):
+              vendor_statement_date=None, vendor_currency=None,
+              zoho_currency=None, fx_rate=None):
     from .normalize import parse_date
 
     def _iso(r):
@@ -449,7 +453,69 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     # Statements rarely repeat their currency next to every figure, so it is
     # inferred: same-currency books cluster at a ratio of 1.0, an INR ledger
     # against AED books clusters around 24.
-    fx_rate, fx_ratios = _detect_scale(pairs, vm, zm)
+    #
+    # What each side is denominated in comes first, from the rows themselves
+    # (a currency column, or the issuer's country) and otherwise from the
+    # caller — the platform knows a vendor's currency from its Zoho contact,
+    # and the user can set it by hand. A currency stated on the rows wins over
+    # one supplied by the caller; the two disagreeing is reported.
+    def _declared(rows):
+        c = Counter(r.get('currency') for r in rows if r.get('currency'))
+        return (c.most_common(1)[0][0] if c else None), dict(c)
+
+    v_ccy, v_ccy_counts = _declared(vendor_rows + v_pay)
+    z_ccy, z_ccy_counts = _declared(zoho_rows + z_pay)
+    v_inferred = any(r.get('currencySource') == 'inferred' for r in vendor_rows + v_pay)
+    ccy_notes = []
+    for side, have, given in (('vendor statement', 'v', vendor_currency),
+                              ('our books', 'z', zoho_currency)):
+        given = str(given or '').strip().upper() or None
+        cur = v_ccy if have == 'v' else z_ccy
+        if not given:
+            continue
+        if cur and cur != given and not (have == 'v' and v_inferred):
+            ccy_notes.append(
+                f'The {side} states {cur}, but {given} was selected for it. '
+                f'The currency printed on the document has been used.')
+            continue
+        if have == 'v':
+            v_ccy = given
+        else:
+            z_ccy = given
+
+    # The rate, in order of trust: one supplied by the caller; a peg; the
+    # ratio of reference-matched rows. With the currencies known to differ,
+    # one matched row is evidence enough — the declaration already says the
+    # scales differ, the rows only say by how much.
+    differ = bool(v_ccy and z_ccy and v_ccy != z_ccy)
+    detected, fx_ratios = _detect_scale(pairs, vm, zm,
+                                        min_sample=1 if differ else MIN_RATE_SAMPLE)
+    fx_source = None
+    if fx_rate:
+        fx_rate, fx_source = float(fx_rate), 'declared'
+        if detected and abs(detected / fx_rate - 1) > rate_tolerance:
+            ccy_notes.append(
+                f'The rate supplied ({fx_rate:,.4f}) is {detected / fx_rate - 1:+.1%} '
+                f'off what the matched rows imply ({detected:,.4f}). Check the '
+                f'rate, or the rows that disagree with it.')
+    elif differ and v_ccy in PEGGED_PER_USD and z_ccy in PEGGED_PER_USD:
+        fx_rate, fx_source = PEGGED_PER_USD[v_ccy] / PEGGED_PER_USD[z_ccy], 'pegged'
+    elif detected:
+        fx_rate, fx_source = detected, 'inferred'
+    else:
+        fx_rate = None
+    # Known to differ, and no way to convert: amounts cannot be compared at
+    # all. Subtracting INR from AED produces a "difference" on every row that
+    # looks exactly like a real one.
+    rate_unknown = differ and not fx_rate and not (fx_ratios and _median(fx_ratios)
+                                                    and SCALE_BAND[0] <= _median(fx_ratios) <= SCALE_BAND[1])
+    if rate_unknown:
+        ccy_notes.insert(0, (
+            f'EXCHANGE RATE NEEDED: the vendor statement is in {v_ccy} and our books '
+            f'in {z_ccy}, and no rate is available — none was supplied and no row '
+            f'matched by reference to imply one. Rows are paired by reference only; '
+            f'amounts are NOT compared and no difference below is a real figure. '
+            f'Supply the {v_ccy} per {z_ccy} rate (fxRate) and run again.'))
     pay_pairs = _match_payment_lane(v_pay, z_pay, tolerance, date_window,
                                     rate=fx_rate, rate_tol=rate_tolerance,
                                     pairable=_pairable)
@@ -461,6 +527,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     for z in z_open:
         z_by_amt[_amount_key(zm[z])].append(z)
     for vref in sorted(list(v_open), key=lambda r: -abs(vm[r]['amount'])):
+        if rate_unknown:
+            break           # equal numbers in two currencies are not a match
         v = vm[vref]
         if fx_rate:
             # different currencies: pair on the ratio, not the difference
@@ -503,7 +571,7 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
 
     # tier 4 — combination sums (2-3 leftover lines equal one line opposite)
     # combination sums are meaningless across two currencies
-    if enable_combos and not fx_rate and v_open and z_open \
+    if enable_combos and not fx_rate and not rate_unknown and v_open and z_open \
             and len(v_open) + len(z_open) <= 80:
         def _try_combos(single_side, single_map, multi_side, multi_map, direction):
             for sref in sorted(list(single_side), key=lambda r: -abs(single_map[r]['amount'])):
@@ -547,6 +615,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         tolerance. Different currencies: the rate this row implies is within
         rate_tolerance of the rate the statement as a whole implies — an
         outlier there is a real discrepancy, ordinary FX drift is not."""
+        if rate_unknown:
+            return False, None
         if not fx_rate:
             return abs(round(vamt - zamt, 2)) <= tolerance, None
         if not vamt or not zamt or (vamt >= 0) != (zamt >= 0):
@@ -600,7 +670,7 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             'vendorAmt': v['amount'], 'zohoAmt': z['amount'],
             'impliedRate': implied,
             # across two currencies a subtraction is not a difference
-            'diff': None if fx_rate else (diff if not ok else 0.0),
+            'diff': None if (fx_rate or rate_unknown) else (diff if not ok else 0.0),
             'status': 'MATCHED' if ok else 'AMOUNT_DIFF',
             'tier': tier, 'note': note,
             'vendorOriginal': v.get('orig') if open_mode else None,
@@ -664,7 +734,7 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                         'vendorDateISO': v.get('dateISO'), 'zohoDateISO': z.get('dateISO'),
                         'type': 'Payment', 'vendorAmt': v['amount'], 'zohoAmt': z['amount'],
                         'impliedRate': implied,
-                        'diff': None if fx_rate else (d if not ok else 0.0),
+                        'diff': None if (fx_rate or rate_unknown) else (d if not ok else 0.0),
                         'status': 'MATCHED' if ok else 'AMOUNT_DIFF',
                         'tier': tier, 'note': note})
     for i, v in enumerate(v_pay):
@@ -963,13 +1033,20 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             f'{n_extra} genuine vendor-only row(s) remain, worth '
             f'{extra_val:,.2f}.')
     if fx_rate:
-        lo, hi = min(fx_ratios), max(fx_ratios)
+        per = f'{v_ccy} per {z_ccy}' if v_ccy and z_ccy else "of the vendor's currency per unit of ours"
+        if fx_source == 'declared':
+            basis = f'the rate supplied, {fx_rate:,.4f} {per}'
+        elif fx_source == 'pegged':
+            basis = f'the fixed peg, {fx_rate:,.4f} {per}'
+        else:
+            basis = (f'about {fx_rate:,.2f} {per}, implied by {len(fx_ratios)} '
+                     f'reference-matched row(s)')
+        if fx_ratios:
+            basis += f' (rows range {min(fx_ratios):,.2f}–{max(fx_ratios):,.2f})'
         syn_notes.append(
-            f'The two statements are in different currencies — their reference-matched '
-            f'rows imply about {fx_rate:,.2f} of the vendor\'s currency per unit of ours '
-            f'(range {lo:,.2f}–{hi:,.2f} across {len(fx_ratios)} rows). Rows are paired '
-            f'by reference and rate, not by amount. "Net difference" below is a raw '
-            f'subtraction of two currencies and is NOT a monetary figure — read '
+            f'The two statements are in different currencies — rows are paired by '
+            f'reference and by {basis}, not by amount. "Net difference" below is a '
+            f'raw subtraction of two currencies and is NOT a monetary figure — read '
             f'vendorNet and zohoNet separately, each in its own currency.')
     if n_syn:
         syn_val = round(sum(vm[r]['amount'] for r in v_syn)
@@ -1054,13 +1131,6 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     # scales. What each side is actually DENOMINATED in is a separate fact, and
     # a stated one. Holding both lets each check the other: a rate of 3.67 with
     # both sides declaring AED is a mis-parse, not an exchange rate.
-    def _declared(rows):
-        c = Counter(r.get('currency') for r in rows if r.get('currency'))
-        return (c.most_common(1)[0][0] if c else None), dict(c)
-
-    v_ccy, v_ccy_counts = _declared(vendor_rows + v_pay)
-    z_ccy, z_ccy_counts = _declared(zoho_rows + z_pay)
-    ccy_notes = []
     if v_ccy and z_ccy and v_ccy != z_ccy:
         ccy_notes.append(
             f'The two statements are in different currencies — the vendor\'s is '
@@ -1129,14 +1199,14 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     # The declared currencies and the inferred rate must agree. When they do
     # not, one of them is wrong, and saying which is beyond the engine — but
     # saying THAT is not.
-    if fx_rate and v_ccy and z_ccy and v_ccy == z_ccy:
+    if fx_source == 'inferred' and v_ccy and z_ccy and v_ccy == z_ccy:
         ccy_notes.insert(0, (
             f'CONTRADICTION: both statements declare {v_ccy}, yet the matched '
             f'rows imply a rate of {fx_rate:,.2f} between them. Same-currency '
             f'books cluster at 1.0. Either a statement is mislabelled or a '
             f'column has been read wrongly — do not rely on this '
             f'reconciliation until it is resolved.'))
-    elif v_ccy and z_ccy and v_ccy != z_ccy and not fx_rate:
+    elif v_ccy and z_ccy and v_ccy != z_ccy and not fx_rate and not rate_unknown:
         ccy_notes.insert(0, (
             f'The statements declare different currencies ({v_ccy} vs {z_ccy}) '
             f'but the matched rows imply a rate of about 1.0, which would mean '
@@ -1300,12 +1370,17 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         'vendorCurrency': v_ccy, 'zohoCurrency': z_ccy,
         'vendorCurrencyCounts': v_ccy_counts, 'zohoCurrencyCounts': z_ccy_counts,
         'currencyDeclaredMismatch': bool(v_ccy and z_ccy and v_ccy != z_ccy),
-        'currencyContradiction': bool(fx_rate and v_ccy and z_ccy and v_ccy == z_ccy),
-        'currencyMismatch': bool(fx_rate),
-        'netDifferenceMeaningful': not fx_rate,
+        'currencyContradiction': bool(fx_source == 'inferred' and v_ccy and z_ccy
+                                      and v_ccy == z_ccy),
+        'currencyMismatch': bool(fx_rate) or rate_unknown,
+        'netDifferenceMeaningful': not fx_rate and not rate_unknown,
         'impliedRate': round(fx_rate, 4) if fx_rate else None,
         'impliedRateRange': ([round(min(fx_ratios), 4), round(max(fx_ratios), 4)]
-                             if fx_rate else None),
+                             if fx_rate and fx_ratios else None),
+        # where the rate came from: 'declared' (supplied), 'pegged', 'inferred'
+        'fxRateSource': fx_source,
+        # the currencies differ and nothing gave a rate — amounts not compared
+        'needsFxRate': rate_unknown,
         'rateTolerance': rate_tolerance if fx_rate else None,
         'tolerance': tolerance,
         'matchedResidual': round(matched_resid, 2),

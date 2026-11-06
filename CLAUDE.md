@@ -66,7 +66,7 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.20.2
+## Current state — v2.21.0
 
 Run `run_tests.cmd` from the repo root (`.\run_tests.cmd` in PowerShell — it
 will not run without the `.\`).
@@ -82,6 +82,37 @@ Diagnostics, all of which take a file path and print to UTF-8:
 - `tools/recon_workbook.py <file> <vendorSheet> <zohoSheet>` — parses two
   sheets and reconciles them. Use it to check the engine against a
   reconciliation someone did by hand in the same workbook.
+
+### v2.21 — foreign-currency vendors (Seven Turns / KUWA, INR vs AED)
+
+A Tally ledger in INR against bills booked in AED. Nothing on it says INR.
+
+1. **Labels LEFT of their data.** "Particulars" spans three data columns but
+   leaves one blank header cell, so Vch Type/Vch No./Debit/Credit each sit one
+   column left of their values (the opposite of v2.14). `_shifted_colmaps`
+   tries each blank as the point after which labels move right by 1 or 2;
+   `_colmap_score` now penalises text in a money column so the fit is decided
+   by data. 3/8 rows → 8/8, tie-out exact (313.25)
+2. **Column-total rows** — a bare number in the date column, no reference, no
+   text — are skipped and counted (they were 1.15m and 1.39m "invoices")
+3. `canon_type` strips a Tally branch prefix (`MH-RECIEPT` → Payment,
+   `MH-SALES EXPORT` → Invoice, `MH-EXPORT-CN` → Credit Note)
+4. **Currency inferred from the issuer** when nothing states one: two or more
+   Indian markers (CIN, GSTIN, PAN, Pvt Ltd, a state, "India") → INR, with
+   `currencySource: 'inferred'` on meta and rows and a warning saying so. UAE/KSA
+   markers are never used — every statement addressed to us carries ours
+5. `/reconcile` and `/export` take **`vendorCurrency`, `zohoCurrency`, `fxRate`**
+   (vendor units per ONE of ours). The platform fills vendorCurrency from the
+   Zoho contact; the user can override. A currency printed on the statement
+   beats a selection (conflict reported); a selection beats an inferred one
+6. **Rate, in order of trust:** supplied → pegged (AED/USD/SAR constants,
+   `PEGGED_PER_USD`) → inferred from reference-matched rows (ONE row suffices
+   once the currencies are declared different; three otherwise). A supplied
+   rate >10% off the rows' implied rate is reported. `summary.fxRateSource`
+7. **No rate at all and the currencies differ** → `needsFxRate: true`,
+   `EXCHANGE RATE NEEDED` first in `findings`, value/combo tiers skipped, no
+   amount compared, `diff: None` throughout. Subtracting INR from AED produced
+   a confident difference on every row
 
 ### v2.20 — sectioned statements (Valeo-Kuwa SOA template)
 
@@ -264,6 +295,10 @@ Sample documents are not in the repo; ask before assuming a path.
   **4,830,591.33**, 7 payments **−2,650,656.72**, 13 credit notes
   **−481,761.68**. Invoices + credit notes = **4,348,829.65**, the sheet's
   column-4 total. Covered by `tests/test_sectioned_statements.py`.
+- **Seven Turns / KUWA Tally ledger** (INR, 1 Apr–23 Oct 2026) — 8 records:
+  3 invoices, 3 receipts, 2 credit notes; movement **313.25** = closing
+  237,762.59 − opening 237,449.34. Currency inferred INR (CIN + Pvt Ltd +
+  Maharashtra). Covered by `tests/test_foreign_currency_vendor.py`.
 - **SAP B1 GL (Kuwa Food Supplements)** — 6 records, 2 of them negative,
   summing to **−1,748,166.00**. Opening 1,929,045.86 less that movement gives
   180,879.86, the closing balance printed in the file. Covered by

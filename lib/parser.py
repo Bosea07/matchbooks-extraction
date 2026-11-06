@@ -2,7 +2,8 @@ import re
 from .normalize import (parse_amount, parse_date, norm_ref, looks_like_ref,
                         infer_type, is_total_row, is_opening_row,
                         SCI_NOTATION, unwrap_pdf_breaks, canon_type,
-                        ref_candidates, clean_cell, is_doc_code, detect_currency)
+                        ref_candidates, clean_cell, is_doc_code, detect_currency,
+                        guess_currency_from_issuer)
 
 # Types that increase what is owed. A row the statement labels one of these
 # can never carry a negative amount.
@@ -133,9 +134,27 @@ def _colmap_score(grid, start, colmap):
             hits += 2
         for key in ('amount', 'debit', 'credit'):
             j = colmap.get(key)
-            if j is not None and 0 <= j < len(r) and parse_amount(r[j]) is not None:
-                hits += 1
+            if j is None or not 0 <= j < len(r) or r[j] in (None, ''):
+                continue
+            # a money column holding a voucher number is the wrong column
+            hits += 1 if parse_amount(r[j]) is not None else -1
     return hits / min(len(rows), 30)
+
+
+def _shifted_colmaps(header_cells, colmap):
+    """The opposite of a compacted header: a merged cell that spans MORE
+    columns than the header leaves blank. Tally prints "Particulars" across
+    three data columns (Dr/Cr, ledger, PO) but stores one blank after it, so
+    every later label — Vch Type, Vch No., Debit, Credit — sits one column
+    LEFT of its data. Each blank in the header is tried as the point after
+    which labels move right by one or two."""
+    out = []
+    for p, c in enumerate(header_cells):
+        if c not in (None, '') or not any(j > p for j in colmap.values()):
+            continue
+        for s in (1, 2):
+            out.append({k: (j + s if j > p else j) for k, j in colmap.items()})
+    return out
 
 
 def _compacted_colmap(header_cells):
@@ -462,12 +481,17 @@ def parse_grid(grid, reader_meta=None, _section=None):
     # data: if re-indexing the labels densely fits it better, the header was
     # merged and the literal positions are wrong.
     if _section is None and header_row >= 0 and colmap and header_row < len(grid):
+        lit_score = _colmap_score(grid, header_row + 1, colmap)
+        best, best_score = None, lit_score + 0.5
         alt = _compacted_colmap(grid[header_row])
-        if alt and alt != colmap:
-            lit_score = _colmap_score(grid, header_row + 1, colmap)
-            alt_score = _colmap_score(grid, header_row + 1, alt)
-            if alt_score > lit_score + 0.5:
-                colmap, realigned = alt, True
+        cands = ([('left', alt)] if alt and alt != colmap else []) + \
+            [('right', m) for m in _shifted_colmaps(grid[header_row], colmap)]
+        for side, m in cands:
+            sc = _colmap_score(grid, header_row + 1, m)
+            if sc > best_score:
+                best, best_score = (side, m), sc
+        if best:
+            realigned, colmap = best
     pre_warnings = []
     colmap = _validate_ref_column(grid, header_row, colmap, pre_warnings)
     # A statement with only an outstanding column states nothing else to use:
@@ -509,6 +533,7 @@ def parse_grid(grid, reader_meta=None, _section=None):
     records, warnings = [], list(pre_warnings)
     data_rows = invalid_rows = unreferenced = 0
     sign_conflicts = []
+    column_totals = 0
     doc_total = None
     opening_balance = None
 
@@ -579,6 +604,16 @@ def parse_grid(grid, reader_meta=None, _section=None):
                         amount = v
                         break
         raw_ref = cell(row, 'ref')
+        # Tally prints column totals with the grand total in the DATE column
+        # ("1388300.76 | … | 1150538.17") and no words at all. Kept, each
+        # became an unreferenced "invoice" of over a million.
+        d_cell = cell(row, 'date')
+        if raw_ref in (None, '') and d_cell not in (None, '') \
+                and parse_date(d_cell)[0] is None and parse_amount(d_cell) is not None \
+                and all(c in (None, '') or parse_amount(c) is not None for c in row):
+            column_totals += 1
+            data_rows -= 1
+            continue
         if raw_ref not in (None, '') and parse_amount(raw_ref) is not None \
                 and parse_date(cell(row, 'date'))[0] is None and not looks_like_ref(raw_ref):
             amts = [parse_amount(c) for c in row]
@@ -771,10 +806,18 @@ def parse_grid(grid, reader_meta=None, _section=None):
             f"AMOUNT COLUMN NOT RECOGNISED: the header names no amount column, so "
             f"figures were read from '{amount_guessed_under_header}'. Check one row "
             f"against the document before reconciling.")
-    if realigned:
+    if realigned == 'left':
         warnings.append(
             'Header cells are merged — column labels sit right of their own '
             'data, so the map was rebuilt by label order. Spot-check a row.')
+    elif realigned == 'right':
+        warnings.append(
+            'Header cells are merged — column labels sit left of their own '
+            'data (a label spans more columns than the header shows), so the '
+            'map was shifted to fit the data. Spot-check a row.')
+    if column_totals:
+        warnings.append(f'{column_totals} column-total row(s) skipped (a bare '
+                        f'number in the date column, no reference or text)')
     if unreferenced:
         conf -= 0.10
         val = round(sum(r['amount'] for r in records if r['ref'].startswith('~')), 2)
@@ -803,6 +846,7 @@ def parse_grid(grid, reader_meta=None, _section=None):
             f'silently; treat every total below as incomplete.')
     # dominant currency, and whether the document mixes more than one
     currency = None
+    currency_source = 'stated'
     mixed_currency = False
     if ccy_counts:
         ranked = sorted(ccy_counts.items(), key=lambda kv: -kv[1])
@@ -820,10 +864,30 @@ def parse_grid(grid, reader_meta=None, _section=None):
                 '. Totals below add them together and are NOT a monetary '
                 'figure until the minor rows are converted or excluded.')
     else:
-        warnings.append(
-            'No currency found on this statement — nothing states a code or a '
-            'symbol. Amounts are reported as plain numbers; confirm the '
-            'currency before comparing them with anything.')
+        # Nothing states a currency. The issuer's country may still say it —
+        # reported as an inference, never as a declaration.
+        # Only the letterhead above the header row identifies the issuer. Our
+        # own AP reports list dozens of Indian vendors in their data rows; read
+        # from there, every one of them was stamped INR.
+        guess, basis = guess_currency_from_issuer(
+            c for r in grid[:max(header_row, 0)] for c in r)
+        if guess:
+            currency, currency_source = guess, 'inferred'
+            for r in records:
+                r.setdefault('currency', None)
+                if not r['currency']:
+                    r['currency'] = guess
+                    r['currencySource'] = 'inferred'
+            warnings.append(
+                f'No currency is stated on this statement. The issuer looks '
+                f'{guess}-based ({", ".join(basis)}), so it is treated as {guess} '
+                f'— an inference, not a declaration. Confirm or change the '
+                f'vendor currency before reconciling.')
+        else:
+            warnings.append(
+                'No currency found on this statement — nothing states a code or a '
+                'symbol. Amounts are reported as plain numbers; confirm the '
+                'currency before comparing them with anything.')
 
     totals_check = None
     if doc_total is not None and records:
@@ -896,6 +960,7 @@ def parse_grid(grid, reader_meta=None, _section=None):
         'signConflicts': len(sign_conflicts),
         'rowsAccountedFor': len(records) + invalid_rows == data_rows,
         'currency': currency, 'currencyCounts': ccy_counts,
+        'currencySource': currency_source if currency else None,
         'mixedCurrency': mixed_currency,
         'confidence': round(conf, 3), 'warnings': warnings, 'totalsCheck': totals_check,
     }

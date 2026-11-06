@@ -19,7 +19,7 @@ from lib.export_xlsx import build_workbook, to_bytes
 MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
 CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-app = FastAPI(title='matchbooks-extraction', version='2.20.2')
+app = FastAPI(title='matchbooks-extraction', version='2.21.0')
 app.add_middleware(CORSMiddleware,
                    allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
                    allow_methods=['*'], allow_headers=['*'])
@@ -27,7 +27,7 @@ app.add_middleware(CORSMiddleware,
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'matchbooks-extraction',
-            'version': '2.20.2',
+            'version': '2.21.0',
             'claudeFallback': claude_extract.available(),
             'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
@@ -163,6 +163,15 @@ class ReconcileBody(BaseModel):
     # From /extract meta.statementDate. On an open-items statement it is the
     # day the balances were struck; anything after it cannot be on the page.
     vendorStatementDate: Optional[str] = None
+    # The vendor's currency as the platform knows it (its Zoho contact) or as
+    # the user selected it; our books' currency (the entity's base currency).
+    # A currency printed on the statement itself still wins over these.
+    vendorCurrency: Optional[str] = None
+    zohoCurrency: Optional[str] = None
+    # Vendor currency per ONE unit of ours — e.g. 23.9 for INR against AED.
+    # Optional: pegged pairs (AED/USD/SAR) need none, and with enough rows
+    # matched by reference the engine infers it.
+    fxRate: Optional[float] = None
 
 def _counterparty_warning(vendor_rows, zoho_rows):
     """Are these two documents even about the same vendor?
@@ -210,7 +219,9 @@ def reconcile_endpoint(body: ReconcileBody):
             tolerance=body.tolerance if body.tolerance is not None else 1.0,
             date_window=body.dateWindow if body.dateWindow is not None else 7,
             enable_combos=bool(body.enableCombos),
-            vendor_statement_date=body.vendorStatementDate)
+            vendor_statement_date=body.vendorStatementDate,
+            vendor_currency=body.vendorCurrency, zoho_currency=body.zohoCurrency,
+            fx_rate=body.fxRate)
     except AssertionError as e:
         raise HTTPException(500, detail=f'Reconciliation invariant failed: {e}')
     if warn:
@@ -230,8 +241,6 @@ class ExportBody(ReconcileBody):
     entity: Optional[str] = None
     period: Optional[str] = None
     currency: Optional[str] = None
-    vendorCurrency: Optional[str] = None
-    zohoCurrency: Optional[str] = None
     filename: Optional[str] = None
 
 
@@ -246,7 +255,9 @@ def export_endpoint(body: ExportBody):
             tolerance=body.tolerance if body.tolerance is not None else 1.0,
             date_window=body.dateWindow if body.dateWindow is not None else 7,
             enable_combos=bool(body.enableCombos),
-            vendor_statement_date=body.vendorStatementDate)
+            vendor_statement_date=body.vendorStatementDate,
+            vendor_currency=body.vendorCurrency, zoho_currency=body.zohoCurrency,
+            fx_rate=body.fxRate)
         if not isinstance(result, dict) or 'results' not in result:
             raise HTTPException(400, detail="'result' must be a /reconcile response")
         wb = build_workbook(
