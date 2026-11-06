@@ -196,6 +196,42 @@ def test_a_header_repeated_on_every_page_is_not_a_section():
     assert [r['amount'] for r in records] == [500, -500, 700]
 
 
+def test_one_table_printed_twice_is_not_two_sections():
+    """Kuwa Food Supplements' Tally "bills outstanding" print: the same five
+    bills as page (A) "Opening Amount" and page (B) "Pending Amount". Read as
+    two sections, every bill counted twice — 329,416.00 instead of the old
+    single read."""
+    head_a = ['Date', 'Ref. No.', 'Opening Amount', 'Post-Dated\nAmount',
+              'Final Balance', 'Due on', 'Overdue by days']
+    head_b = ['Date', 'Ref. No.', 'Pending Amount'] + head_a[3:]
+    bills = [['2026-01-09', '151', '9,763.50 Dr', None, '9,763.50 Dr', '2026-01-09', 172],
+             ['2026-06-08', '221', '60,704.00 Dr', None, '60,704.00 Dr', '2026-06-08', 22]]
+    grid = ([['Page 1  (A)'] + [None] * 6, head_a] + bills +
+            [['Page 1  (B)'] + [None] * 6, head_b] + bills)
+    records, meta = parse_grid(grid)
+    assert 'sections' not in meta
+    assert sorted(r['ref'] for r in records) == ['151', '221'], records
+
+
+def test_rows_above_the_first_recognised_header_are_never_skipped():
+    """Amazon card export: January's block has no Reference column, so its
+    header is not recognised; February onward is. Parsed by sections, January's
+    rows sat above the first section and vanished uncounted."""
+    jan = ['Transaction Date', 'Transaction Type', 'Merchant Name', 'Transaction Amount']
+    later = ['Transaction Date', 'Reference', 'Transaction Type', 'Transaction Amount']
+    grid = [['January', None, None, None], jan,
+            ['2026-01-01', 'Payment', 'Amazon.sa', -2915.69],
+            ['2026-01-02', 'Payment', 'Amazon.sa', -2725.52],
+            ['FEBRUARY', None, None, None], later,
+            ['2026-02-01', 'TX260201', 'Payment', -2885.95],
+            ['March Invoices', None, None, None],
+            ['Invoice Date', 'Invoice No', 'Invoice Amount', None],
+            ['2026-03-01', 'INV-3001', 1200, None]]
+    records, meta = parse_grid(grid)
+    assert 'sections' not in meta, 'January would be skipped uncounted'
+    assert meta['rowsAccountedFor']
+
+
 def test_credit_note_does_not_match_the_invoice_it_settles():
     records, _ = parse_grid(_grid())
     vendor = [r for r in records if r['ref'] in ('MF/DL24-25/7449', 'C/MKDL25-26/0011')]

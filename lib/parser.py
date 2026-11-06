@@ -335,6 +335,20 @@ def _find_sections(grid):
                       'layout': re.sub(r'\s+', ' ', header_text.lower())})
     if len({s['layout'] for s in found}) < 2:
         return []
+    # Blocks of the same kind are pages, not sections. A Tally "bills
+    # outstanding" print repeats one table as page (A) and page (B) under
+    # slightly different labels; parsed as two sections every bill counted
+    # twice. A card export split by month is one ledger, not five.
+    if len({s['type'] for s in found if s['type']}) < 2:
+        return []
+    # Data above the first recognised header belongs to no block. Parsing by
+    # sections would skip it without counting it, so read the sheet as one
+    # table instead — the row-accounting invariant then sees every row.
+    for row in grid[:found[0]['headerRow']]:
+        if any(parse_date(c)[0] for c in row if c not in (None, '')) and \
+                any(parse_amount(c) is not None and not parse_date(c)[0]
+                    for c in row if c not in (None, '')):
+            return []
     return found
 
 
@@ -349,8 +363,23 @@ def _parse_sections(grid, reader_meta, sections):
         sub = [row if (i < first or s['headerRow'] <= i < end) else []
                for i, row in enumerate(grid)]
         recs, m = parse_grid(sub, reader_meta, _section=s)
-        records += recs
         metas.append((s, recs, m))
+
+    # The same row in two blocks is a repeated page — dropped and counted, as
+    # within a single table.
+    seen, repeated = set(), 0
+    for s, recs, m in metas:
+        kept = []
+        for r in recs:
+            key = (r['ref'], r['amount'], r['dateISO'])
+            if key in seen:
+                repeated += 1
+                continue
+            seen.add(key)
+            kept.append(r)
+        m['dataRows'] -= len(recs) - len(kept)
+        recs[:] = kept
+        records += kept
 
     meta = dict(metas[0][2])
     for key in ('dataRows', 'invalidRows', 'unreferencedRows', 'signConflicts'):
@@ -385,6 +414,9 @@ def _parse_sections(grid, reader_meta, sections):
                 continue
             seen.add(w)
             warnings.append(f"[{s['title']}] {w}")
+    if repeated:
+        warnings.append(f'{repeated} row(s) repeated in more than one block — '
+                        f'dropped as repeated pages')
     if len(ccy) > 1:
         warnings.append('This statement mixes currencies across its blocks: ' +
                         ', '.join(f'{c}x{n}' for c, n in ccy.items()) +

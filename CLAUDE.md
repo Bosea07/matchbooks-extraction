@@ -66,7 +66,7 @@ and invent money with the wrong sign. Folded back in `readers.py`
 (`_merge_allocation_fragments`). A row is identified by the reference it *has*,
 never by the references it *settles*.
 
-## Current state — v2.20.0
+## Current state — v2.20.1
 
 Run `run_tests.cmd` from the repo root (`.\run_tests.cmd` in PowerShell — it
 will not run without the `.\`).
@@ -91,9 +91,15 @@ column 4, payment amount in column 3). v2.19 read it all through the first
 header: 39 of 59 rows, all 7 payments lost, all 13 credit notes rejected as
 negative invoices.
 
-1. `_find_sections` — two or more header rows with **different** layouts make
-   a sectioned statement. A header reprinted on every PDF page has one layout
-   and is not one; its rows keep their own type column
+1. `_find_sections` — two or more header rows with **different** layouts AND
+   **different document types** make a sectioned statement. A header reprinted
+   on every PDF page has one layout; a Tally print of one table as page (A) /
+   page (B) and a card export split by month are one kind — none of these is
+   sectioned. **2.20.1**: v2.20 double-counted Kuwa Food Supplements' (A)/(B)
+   print and skipped Amazon Ads' January block (data above the first
+   recognised header) uncounted. Any dated money row above the first header
+   now forces the single-table read; identical rows across blocks are dropped
+   as repeated pages
 2. Each block is parsed under its own header (`parse_grid(..., _section=)`),
    against the whole grid with other blocks blanked, so row numbers stay the
    sheet's. One amount column per block, from the header that says "amount" —
