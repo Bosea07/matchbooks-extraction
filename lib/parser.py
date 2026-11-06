@@ -828,6 +828,10 @@ def parse_grid(grid, reader_meta=None, _section=None):
     totals_check = None
     if doc_total is not None and records:
         s = round(sum(r['amount'] for r in records), 2)
+        # A Payments or Credit Notes block prints its total as a plain figure
+        # ("TOTAL 26,677.00"); its rows reduce the balance and are held negative.
+        if _section and _section.get('type') in ('Payment', 'Credit Note'):
+            doc_total = -abs(doc_total)
         # A ledger's stated total is a CLOSING BALANCE, not the sum of its
         # movements: opening + movement = closing. Comparing the movement
         # straight to the closing balance fails on every ledger that opens with

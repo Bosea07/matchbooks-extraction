@@ -196,6 +196,20 @@ def test_a_header_repeated_on_every_page_is_not_a_section():
     assert [r['amount'] for r in records] == [500, -500, 700]
 
 
+def test_a_payments_block_total_printed_positive_still_ties():
+    """SOA-Kuwa PDF: "TOTAL 2 6,677.00" under two payments. The rows are held
+    negative; the printed total is not, and that is not a discrepancy."""
+    grid = [['Invoice Summary', None, None, None], INV_HEAD[:4],
+            ['15/01/2026', '2026/24/001', 'VERBAL', '4,480.00'],
+            ['Payments', None, None, None], PAY_HEAD,
+            ['27/06/2026', '25360544163-1-151', '4 ,480.00', 'AED'],
+            ['28/03/2026', '2026032803', '2 2,197.00', 'AED'],
+            [None, 'TOTAL', '2 6,677.00', None]]
+    records, meta = parse_grid(grid)
+    assert round(sum(r['amount'] for r in records if r['type'] == 'Payment'), 2) == -26677.0
+    assert not any('!=' in w for w in meta['warnings']), meta['warnings']
+
+
 def test_one_table_printed_twice_is_not_two_sections():
     """Kuwa Food Supplements' Tally "bills outstanding" print: the same five
     bills as page (A) "Opening Amount" and page (B) "Pending Amount". Read as
