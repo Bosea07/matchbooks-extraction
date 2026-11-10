@@ -34,6 +34,7 @@ for %%F in (
   tests\test_open_items.py
   tests\test_sectioned_statements.py
   tests\test_foreign_currency_vendor.py
+  tests\test_service_cache.py
 ) do (
   echo ------------------------------------------------------------
   echo  %%F
