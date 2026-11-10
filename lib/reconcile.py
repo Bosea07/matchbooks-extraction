@@ -45,11 +45,14 @@ PEGGED_PER_USD = {'USD': 1.0, 'AED': 3.6725, 'SAR': 3.75}
 
 
 # ── reference canon helpers ─────────────────────────────────────────────
+_NON_DIGIT = re.compile(r'\D')
+_NON_ALNUM = re.compile(r'[^A-Z0-9]')
+
 def _digits(ref):
-    return re.sub(r'\D', '', ref or '')
+    return _NON_DIGIT.sub('', ref or '')
 
 def _alnum(ref):
-    return re.sub(r'[^A-Z0-9]', '', (ref or '').upper())
+    return _NON_ALNUM.sub('', (ref or '').upper())
 
 def _zstrip(ref):
     d = _digits(ref)
@@ -60,6 +63,31 @@ def _one_typo(a, b):
     if len(a) != len(b) or len(a) < 6 or a == b:
         return False
     return sum(1 for x, y in zip(a, b) if x != y) == 1
+
+
+def _one_typo_pairs(refs):
+    """Every pair (a, b) from refs, a before b in list order, whose alnum forms
+    are one character apart (_one_typo) — in itertools.combinations order.
+
+    Comparing all pairs is quadratic; instead each form is filed under itself
+    with one position blanked out. Two different forms of the same length
+    share such a key exactly when they differ in that one position only."""
+    forms = [_alnum(r) for r in refs]
+    buckets = defaultdict(list)
+    for i, f in enumerate(forms):
+        if len(f) >= 6:
+            for k in range(len(f)):
+                buckets[(len(f), k, f[:k], f[k + 1:])].append(i)
+    found = set()
+    for idx in buckets.values():
+        if len(idx) < 2:
+            continue
+        for x in range(len(idx)):
+            for y in range(x + 1, len(idx)):
+                i, j = idx[x], idx[y]
+                if forms[i] != forms[j]:
+                    found.add((i, j) if i < j else (j, i))
+    return [(refs[i], refs[j]) for i, j in sorted(found)]
 
 
 def _prefix_of(vref, zref):
@@ -441,11 +469,22 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                 if z and z in z_open and (zm[z]['amount'] >= 0) == (vm[vref]['amount'] >= 0):
                     pair(vref, z, 2, f'ref match (prefix {pfx}, seen on {n} other pairs)')
                     break
-    # single-typo refs, only when amounts also agree within tolerance
+    # single-typo refs, only when amounts also agree within tolerance.
+    # A one-character typo keeps the length, so references are grouped by the
+    # length of their alnum form (computed once) and only that group is checked.
+    z_alnum = {z: _alnum(z) for z in z_open - z_syn}
+    z_by_len = defaultdict(list)
+    for z, a in z_alnum.items():
+        if len(a) >= 6:
+            z_by_len[len(a)].append(z)
     for vref in sorted(list(v_open - v_syn)):
         va = _alnum(vref)
-        hits = [z for z in z_open - z_syn if _one_typo(va, _alnum(z))
-                and abs(vm[vref]['amount'] - zm[z]['amount']) <= tolerance]
+        if len(va) < 6:
+            continue
+        vamt = vm[vref]['amount']
+        hits = [z for z in z_by_len.get(len(va), ())
+                if z in z_open and abs(vamt - zm[z]['amount']) <= tolerance
+                and _one_typo(va, z_alnum[z])]
         if len(hits) == 1:
             pair(vref, hits[0], 2, 'ref match (1-char difference)')
 
@@ -842,10 +881,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     # owe by its full value.
     zres = {r['zohoRef']: r for r in results if r.get('zohoRef')}
     zkeys = [k for k in zm if not _is_synthetic(k) and k in zres]
-    for a, b in itertools.combinations(zkeys, 2):
+    for a, b in _one_typo_pairs(zkeys):
         ea, eb = zm[a], zm[b]
-        if not _one_typo(_alnum(a), _alnum(b)):
-            continue
         if abs((ea.get('orig') or ea['amount']) - (eb.get('orig') or eb['amount'])) > tolerance:
             continue
         da, db = _day(ea.get('date')), _day(eb.get('date'))

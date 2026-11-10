@@ -5,10 +5,13 @@ engine: auto (default) | parser | claude | verify
   parser - deterministic only
   claude - Claude-first (vendor SOAs); parser as fallback if Claude unavailable/fails
   verify - run BOTH and cross-check; disagreements are flagged, never silent"""
-import datetime, os, re
+import copy, datetime, hashlib, os, re, threading, time
+from collections import OrderedDict
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import Request
 
 from lib.readers import read_any
 from lib.parser import parse_grid
@@ -19,15 +22,53 @@ from lib.export_xlsx import build_workbook, to_bytes
 MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
 CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-app = FastAPI(title='matchbooks-extraction', version='2.21.0')
+app = FastAPI(title='matchbooks-extraction', version='2.22.0')
 app.add_middleware(CORSMiddleware,
                    allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
-                   allow_methods=['*'], allow_headers=['*'])
+                   allow_methods=['*'], allow_headers=['*'], expose_headers=['Server-Timing', 'X-Extract-Cache'])
+
+
+@app.middleware('http')
+async def timing(request: Request, call_next):
+    """Every response carries its duration (Server-Timing) and is logged, so slow steps show in Railway."""
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    ms = (time.perf_counter() - t0) * 1000
+    response.headers['Server-Timing'] = f'app;dur={ms:.0f}'
+    if request.url.path != '/health':
+        print(f'[timing] {request.method} {request.url.path} {response.status_code} {ms:.0f} ms', flush=True)
+    return response
+
+
+# ---- extraction cache ----------------------------------------------------
+# The same file re-uploaded (a re-run, a second reconciliation, a page reload) is answered from memory instead of
+# being read again by Claude. Keyed by the file's bytes and the engine; only successful reads are kept; lost on restart.
+_CACHE_MAX = int(os.environ.get('EXTRACT_CACHE_SIZE', '64'))
+_cache: 'OrderedDict[str, dict]' = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _cache_get(key):
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit is not None:
+            _cache.move_to_end(key)
+        return copy.deepcopy(hit) if hit is not None else None
+
+
+def _cache_put(key, value):
+    if _CACHE_MAX <= 0:
+        return
+    with _cache_lock:
+        _cache[key] = copy.deepcopy(value)
+        _cache.move_to_end(key)
+        while len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
 
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'matchbooks-extraction',
-            'version': '2.21.0',
+            'version': '2.22.0',
             'claudeFallback': claude_extract.available(),
             'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
@@ -41,6 +82,20 @@ def _base_cols(meta):
     return {k: meta.get(k, -1) for k in
             ('headerRow', 'totalRows', 'dateCol', 'refCol', 'typeCol',
              'debitCol', 'creditCol', 'amountCol')}
+
+def _ai_failure(warn):
+    """A short, actionable reason for a failed AI read (shown to the user)."""
+    w = str(warn)
+    if 'authentication_error' in w or 'invalid x-api-key' in w or ' 401' in w:
+        return 'The AI reader could not sign in: ANTHROPIC_API_KEY on the extraction service is invalid or revoked — set a new key in Railway'
+    if 'password protected' in w.lower():
+        return 'The PDF is password-protected — open it, Print → Save as PDF, and upload the unlocked copy'
+    if 'not_found_error' in w or 'model:' in w:
+        return 'The AI model configured for extraction is no longer available — update CLAUDE_MODEL in Railway'
+    if 'rate_limit' in w or 'overloaded' in w or ' 429' in w or ' 529' in w:
+        return 'The AI reader is busy — try again in a minute'
+    return f'The AI reader failed: {w[:300]}'
+
 
 def _keyset(records):
     return {(r['ref'], round(float(r['amount']), 2)) for r in records}
@@ -57,6 +112,21 @@ async def extract(file: UploadFile = File(...), engine: str = Form('auto')):
     if engine not in ('auto', 'parser', 'claude', 'verify'):
         raise HTTPException(400, detail="engine must be auto | parser | claude | verify")
 
+    key = f'{engine}:{hashlib.sha256(data).hexdigest()}'
+    cached = _cache_get(key)
+    if cached is not None:
+        cached['filename'] = filename
+        cached.setdefault('meta', {})['cached'] = True
+        return cached
+    # Parsing and the Claude call block; run them on a worker thread so several files (and /reconcile, /health)
+    # are served at the same time instead of queueing behind one PDF.
+    resp = await run_in_threadpool(_extract_uncached, filename, data, engine)
+    if resp and resp.get('records'):
+        _cache_put(key, resp)
+    return resp
+
+
+def _extract_uncached(filename, data, engine):
     # ---- deterministic pass (needed by every mode except pure-claude success)
     p_records, p_meta, p_error = [], {}, None
     try:
@@ -73,6 +143,9 @@ async def extract(file: UploadFile = File(...), engine: str = Form('auto')):
             detail = p_error or 'No transactions could be extracted from this file'
             if not claude_extract.available():
                 detail += ' (AI fallback not configured — set ANTHROPIC_API_KEY to enable)'
+            elif extra_warn:
+                # The AI read was the only hope for this file; say why it failed instead of hiding it.
+                detail += f'. {_ai_failure(extra_warn)}'
             raise HTTPException(422, detail=detail)
         if extra_warn:
             p_meta.setdefault('warnings', []).append(extra_warn)
@@ -148,6 +221,8 @@ async def extract(file: UploadFile = File(...), engine: str = Form('auto')):
                 return resp
         except Exception as e:
             p_meta.setdefault('warnings', []).append(f'Claude fallback failed: {e}')
+            if not p_records:
+                return parser_response(f'Claude fallback failed: {e}')
     return parser_response()
 
 
