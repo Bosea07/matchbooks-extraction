@@ -22,7 +22,7 @@ from lib.export_xlsx import build_workbook, to_bytes
 MAX_BYTES = int(os.environ.get('MAX_FILE_MB', '10')) * 1024 * 1024
 CONF_THRESHOLD = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.75'))
 
-app = FastAPI(title='matchbooks-extraction', version='2.22.0')
+app = FastAPI(title='matchbooks-extraction', version='2.23.0')
 app.add_middleware(CORSMiddleware,
                    allow_origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','),
                    allow_methods=['*'], allow_headers=['*'], expose_headers=['Server-Timing', 'X-Extract-Cache'])
@@ -68,7 +68,7 @@ def _cache_put(key, value):
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'matchbooks-extraction',
-            'version': '2.22.0',
+            'version': '2.23.0',
             'claudeFallback': claude_extract.available(),
             'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
@@ -190,6 +190,15 @@ def _extract_uncached(filename, data, engine):
         if not c_resp:
             return parser_response('Verify mode: Claude unavailable')
         pk, ck = _keyset(p_records), _keyset(c_resp['records'])
+        # The keyset compares reference and amount only. A parser that folded
+        # 13 credit notes into the payments block agreed 100% with Claude and
+        # nobody was told; compare what each says the row IS as well.
+        c_types = {(r['ref'], round(float(r['amount']), 2)): r.get('type') for r in c_resp['records']}
+        type_diff = sorted({f"{r['ref']} {round(float(r['amount']), 2)}: parser {r.get('type')}, Claude {c_types[(r['ref'], round(float(r['amount']), 2))]}"
+                            for r in p_records
+                            if (r['ref'], round(float(r['amount']), 2)) in c_types
+                            and c_types[(r['ref'], round(float(r['amount']), 2))]
+                            and r.get('type') != c_types[(r['ref'], round(float(r['amount']), 2))]})
         agree = pk & ck
         verification = {
             'agreementRate': round(len(agree) / max(len(pk | ck), 1), 3),
@@ -209,6 +218,11 @@ def _extract_uncached(filename, data, engine):
             resp['meta']['needsReview'] = True
             resp['meta'].setdefault('warnings', []).append(
                 f"Parser and Claude disagree on {len(pk ^ ck)} rows — review before reconciling")
+        if type_diff:
+            verification['typeDisagreements'] = type_diff[:20]
+            resp['meta']['needsReview'] = True
+            resp['meta'].setdefault('warnings', []).append(
+                f"Parser and Claude disagree on what {len(type_diff)} row(s) are (e.g. {type_diff[0]}) — check the payments and credit notes before reconciling")
         resp['meta']['verification'] = verification
         return resp
 

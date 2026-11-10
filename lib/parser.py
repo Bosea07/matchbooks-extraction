@@ -16,6 +16,10 @@ ACCOUNT_HEADER = re.compile(
 HEADER_SYNONYMS = {
     'date':   ['date', 'doc date', 'document date', 'txn date', 'transaction date',
                'invoice date', 'bill date', 'posting date', 'entry date'],
+    # A due date is not the document date. Mapped on its own so a sheet with
+    # both reads the right one; a sheet with ONLY a due date still uses it as
+    # the date (see _map_row).
+    'due':    ['due date', 'due on', 'payment due date', 'due dt', 'maturity date'],
     'ref':    ['reference', 'ref', 'ref no', 'ref#', 'reference number', 'invoice', 'invoice no',
                'invoice #', 'inv no', 'bill no', 'bill number', 'document', 'document no', 'doc no',
                'voucher', 'voucher no', 'voucher number', 'vch no', 'vch number',
@@ -86,6 +90,8 @@ def _map_row(row):
         if key and key not in colmap:
             colmap[key] = j
             hits += 1
+    if 'due' in colmap and 'date' not in colmap:
+        colmap['date'] = colmap.pop('due')
     return colmap, hits
 
 def find_header(grid):
@@ -313,7 +319,36 @@ def _is_text_only(row):
                                for c in cells)
 
 
-def _find_sections(grid):
+def _unglue_titles(grid):
+    """PDF text extraction often glues a block title onto the last cell of the
+    row above it: "08/06/2026\\nCredit Notes". That breaks the row's date and
+    hides the title. Split it off — only when the cell's first part is a date or
+    an amount and the next non-empty row is a header (text only), so ordinary
+    two-line descriptions are never touched. Returns the cleaned grid and
+    {row index: title}."""
+    out, glued = [list(r) for r in grid], {}
+    for i, row in enumerate(out):
+        nxt = next((r for r in out[i + 1:i + 3] if any(c not in (None, '') for c in r)), None)
+        if not nxt or not _is_text_only(nxt):
+            continue
+        for j, c in enumerate(row):
+            if not isinstance(c, str) or '\n' not in c:
+                continue
+            head, _, tail = c.rpartition('\n')
+            head, tail = head.strip(), tail.strip()
+            if not head or not tail or len(tail) > 40 or not _section_kind(tail):
+                continue
+            if parse_amount(tail) is not None or parse_date(tail)[0]:
+                continue
+            if not (parse_date(head)[0] or parse_amount(head) is not None):
+                continue
+            row[j] = head
+            glued[i] = tail
+            break
+    return out, glued
+
+
+def _find_sections(grid, glued=None):
     """Header rows that each start a block of their own. Two or more with
     different layouts make a sectioned statement; a header repeated on every
     PDF page has one layout and is not one."""
@@ -322,10 +357,36 @@ def _find_sections(grid):
         if not _is_text_only(row):
             continue
         colmap, hits = _map_row(row)
+        nxt = next((r for r in grid[i + 1:i + 4] if any(c not in (None, '') for c in r)), None)
+        if 'date' not in colmap and nxt and 'ref' in colmap:
+            # PDFs cut or wrap header labels: "Credit Note Date" arrives as
+            # "Credit Note", and the block was then not seen at all — its 13
+            # credit notes were read as more payments. The labelled column the
+            # first data row carries its date in is the date column.
+            # "Credit Note" alone reads as a credit (money) column; the data
+            # under it is a date, so the data decides.
+            for j, c in enumerate(nxt):
+                owner = next((k for k, v in colmap.items() if v == j), None)
+                if owner not in (None, *_MONEY_KEYS, 'type') or j >= len(row) or row[j] in (None, '') \
+                        or c in (None, '') or not parse_date(c)[0] or parse_amount(c) is not None and not parse_date(c)[0]:
+                    continue
+                if owner:
+                    colmap.pop(owner)
+                else:
+                    hits += 1
+                colmap['date'] = j
+                # the money label it displaced may sit further along ("Credit Note Amount")
+                if not any(k in colmap for k in _MONEY_KEYS):
+                    taken = set(colmap.values())
+                    for jj, cc in enumerate(row):
+                        kk = _match_header(cc) if jj not in taken else None
+                        if kk in _MONEY_KEYS:
+                            colmap[kk] = jj
+                            break
+                break
         if hits < 2 or 'ref' not in colmap or 'date' not in colmap \
                 or not any(k in colmap for k in _MONEY_KEYS):
             continue
-        nxt = next((r for r in grid[i + 1:i + 4] if any(c not in (None, '') for c in r)), None)
         if not nxt or not any(parse_date(c)[0] for c in nxt if c not in (None, '')):
             continue
         # One amount column per block, taken from the header that says
@@ -342,6 +403,9 @@ def _find_sections(grid):
             if len(cells) == 1 and _is_text_only(r):
                 title = cells[0]
                 break
+        if not title and glued:
+            # a title _unglue_titles split off the row above (or the one before it)
+            title = glued.get(i - 1) or glued.get(i - 2) or ''
         header_text = ' '.join(str(c) for c in row if c not in (None, ''))
         kind = _section_kind(title) or _section_kind(header_text)
         settles = []
@@ -470,7 +534,8 @@ def parse_grid(grid, reader_meta=None, _section=None):
     reader_meta = reader_meta or {}
     grid = [list(r) for r in grid if r is not None]
     if _section is None:
-        sections = _find_sections(grid)
+        grid, glued = _unglue_titles(grid)
+        sections = _find_sections(grid, glued)
         if sections:
             return _parse_sections(grid, reader_meta, sections)
         header_row, colmap = find_header(grid)
@@ -775,6 +840,7 @@ def parse_grid(grid, reader_meta=None, _section=None):
             'date': raw_date or (iso or ''), 'dateISO': iso,
             'type': ttype, 'amount': round(amount, 2), 'row': idx + 1,
             'currency': row_ccy,
+            **({'dueDateISO': parse_date(cell(row, 'due'))[0]} if 'due' in colmap and parse_date(cell(row, 'due'))[0] else {}),
             **({'openAmount': round(open_amt, 2)} if open_amt is not None else {}),
         })
 
