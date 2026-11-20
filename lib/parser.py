@@ -595,8 +595,28 @@ def parse_grid(grid, reader_meta=None, _section=None):
             if c and _BALANCE_COL.search(str(c)):
                 balance_cols.add(j)
 
+    # A value that repeats down a column is a label — the bank account every
+    # receipt went into ("ICICI Bank-10579"), a branch, a ledger name — not the
+    # number of any one document. Read as a reference it gave two different
+    # receipts on one day the same identity, and they were summed into a single
+    # payment that matched nothing. The reference column itself is exempt: what
+    # the statement calls a reference is taken at its word.
+    def _label_key(c):
+        return clean_cell(c).strip().upper() if c not in (None, '') else ''
+    _skip_cols = {colmap.get(k) for k in ('date', 'ref', 'amount', 'debit', 'credit', 'open')}
+    _seen_cells = {}
+    for row in grid[start:]:
+        for jj, c in enumerate(row):
+            if jj in _skip_cols or c in (None, '') or parse_amount(c) is not None:
+                continue
+            k = (jj, _label_key(c))
+            _seen_cells[k] = _seen_cells.get(k, 0) + 1
+    label_cells = {k for k, n in _seen_cells.items() if n >= 4 and k[1]}
+
     records, warnings = [], list(pre_warnings)
     data_rows = invalid_rows = unreferenced = 0
+    credit_by_column = []
+    suspect_dates = []
     sign_conflicts = []
     column_totals = 0
     doc_total = None
@@ -651,6 +671,16 @@ def parse_grid(grid, reader_meta=None, _section=None):
                      any(parse_date(c)[0] for c in row if c not in (None, ''))
         if not has_signal:
             continue
+        # A ledger closes with its column totals on a row of their own: two
+        # bare figures under Debit and Credit, no date, no reference, not one
+        # word. Nothing calls it a total, so the wording check above misses it,
+        # and kept it became an unreferenced "invoice" for the closing balance
+        # (Heavenly Secrets, 55,191.23).
+        if 'date' in colmap and ('debit' in colmap or 'credit' in colmap) \
+                and all(c in (None, '') or (parse_amount(c) is not None
+                                            and parse_date(c)[0] is None) for c in row):
+            column_totals += 1
+            continue
         data_rows += 1
         if 'debit' in colmap or 'credit' in colmap:
             deb = parse_amount(cell(row, 'debit')) or 0.0
@@ -688,7 +718,9 @@ def parse_grid(grid, reader_meta=None, _section=None):
             data_rows -= 1
             continue
         if raw_ref in (None, ''):
-            for c in row:
+            for jj, c in enumerate(row):
+                if (jj, _label_key(c)) in label_cells:
+                    continue
                 # a scientific-notation cell (5.00E+15) is a long reference
                 # mangled by Excel, never a real statement amount — accept it
                 # even though parse_amount() can read it as a number
@@ -757,6 +789,8 @@ def parse_grid(grid, reader_meta=None, _section=None):
                 if jj in (colmap.get('date'), colmap.get('amount'),
                           colmap.get('debit'), colmap.get('credit')):
                     continue
+                if (jj, _label_key(c)) in label_cells:
+                    continue
                 extra_own, extra_alloc = ref_candidates(unwrap_pdf_breaks(str(c)))
                 for t in extra_own:
                     if t not in aliases:
@@ -764,6 +798,11 @@ def parse_grid(grid, reader_meta=None, _section=None):
                 for t in extra_alloc:
                     if t not in allocation and t not in aliases:
                         allocation.append(t)
+        # "5.00E+15" is what Excel leaves of a sixteen-digit bank reference, and
+        # every reference it damages reads the same. It cannot tell two payments
+        # apart, so it never leads when the row carries a real identifier too.
+        if len(aliases) > 1 and any(not SCI_NOTATION.match(a) for a in aliases):
+            aliases = [a for a in aliases if not SCI_NOTATION.match(a)]
         ref = aliases[0] if aliases else ''
         if amount is None:
             invalid_rows += 1
@@ -795,6 +834,21 @@ def parse_grid(grid, reader_meta=None, _section=None):
         # row in it, unless the block has a type column of its own.
         if _section and _section.get('type') and raw_type in (None, ''):
             ttype = _section['type']
+        # A credit note is called by its own number. Zoho prints the bill it was
+        # applied to on the line above ("E25-036 / CN-008"), and read in order
+        # the credit took the bill's name — the two were then netted together and
+        # the bill showed a difference of exactly the credit. When the row holds
+        # a credit-note number, that is its identity and the rest is what it
+        # settles. A credit row that quotes only a bill number is left as it is.
+        if ttype == 'Credit Note' and len(aliases) > 1 \
+                and type_from_ref(aliases[0]) != 'Credit Note':
+            own = [a for a in aliases if type_from_ref(a) == 'Credit Note']
+            if own:
+                for a in aliases:
+                    if a not in own and a not in allocation:
+                        allocation.append(a)
+                aliases = own
+                ref = aliases[0]
         # Statements that label a row "Payment Made" put the figure in a
         # payments column as a positive number, so it has to be negated. A
         # ledger posting document-type CODES does not: its amount column is
@@ -819,6 +873,17 @@ def parse_grid(grid, reader_meta=None, _section=None):
                 # reversal under the same code with the sign flipped, so a
                 # negative here is the document telling us what it is.
                 ttype = 'Credit Note'
+            elif raw_type in (None, '') and 'debit' in colmap and 'credit' in colmap \
+                    and (parse_amount(cell(row, 'credit')) or 0) > 0 \
+                    and not (parse_amount(cell(row, 'debit')) or 0):
+                # Nothing on the row says what it is — "Invoice" was only the
+                # fallback guess — and the figure sits in the statement's own
+                # Credit column. The column is the statement speaking; the guess
+                # is not. A ledger's unlabelled credits (a marketing fee, a
+                # rebate, a write-off) were being thrown away as sign errors
+                # while the entry they offset was kept.
+                ttype = 'Credit Note'
+                credit_by_column.append((idx + 1, round(amount, 2)))
             else:
                 sign_conflicts.append((idx + 1, ttype, round(amount, 2), str(raw_ref)[:40]))
                 invalid_rows += 1
@@ -856,6 +921,45 @@ def parse_grid(grid, reader_meta=None, _section=None):
         warnings.append(f'{dropped} duplicate rows dropped (repeated pages)')
         data_rows -= dropped
     records = deduped
+    # A posting cannot be dated after the day the statement is read. "2062" for
+    # "2026" is a slip of the hand in the supplier's ledger; believed, it put the
+    # row decades past the end of our own statement, where it was reported as an
+    # open item we had never booked. The date is not corrected — nobody here
+    # knows what was meant — it is set aside, so the row is compared on its
+    # reference and amount like any other undated row, and the reader is told.
+    from datetime import date as _date, timedelta as _td
+    horizon = (_date.today() + _td(days=60)).isoformat()
+    sound = sorted(r['dateISO'] for r in records
+                   if r.get('dateISO') and r['dateISO'] <= horizon)
+    guessed = 0
+    for r in records:
+        if r.get('dateISO') and r['dateISO'] > horizon:
+            bad = r['dateISO']
+            suspect_dates.append((r['row'], bad))
+            r['dateSuspect'] = bad
+            r['dateISO'] = None
+            # The commonest slip is two digits of the year the wrong way round.
+            # If undoing it lands inside the period the rest of the statement
+            # covers, that date is offered as a hint for pairing payments — a
+            # hint only: it is never shown or reported as the row's date.
+            swapped = bad[:2] + bad[3] + bad[2] + bad[4:]
+            if sound and sound[0] <= swapped <= horizon and parse_date(swapped)[0]:
+                r['dateGuess'] = swapped
+                guessed += 1
+    if suspect_dates:
+        detail = '; '.join(f'row {n} {d}' for n, d in suspect_dates[:4])
+        warnings.append(
+            f'{len(suspect_dates)} row(s) carry a date in the future ({detail}) — '
+            f'almost certainly a typing error in the statement. The rows are kept '
+            f'and compared without that date'
+            + (f' ({guessed} read as a year with two digits swapped when pairing payments)'
+               if guessed else '')
+            + '; check them against the document.')
+    if credit_by_column:
+        detail = '; '.join(f'row {n} {a}' for n, a in credit_by_column[:4])
+        warnings.append(
+            f'{len(credit_by_column)} row(s) have no type and sit in the Credit '
+            f'column ({detail}) — kept as credits. Check what they are.')
     conf = (len(records) / data_rows) if data_rows else 0.0
     if 'date' not in colmap:
         conf -= 0.10
@@ -882,8 +986,8 @@ def parse_grid(grid, reader_meta=None, _section=None):
             'data (a label spans more columns than the header shows), so the '
             'map was shifted to fit the data. Spot-check a row.')
     if column_totals:
-        warnings.append(f'{column_totals} column-total row(s) skipped (a bare '
-                        f'number in the date column, no reference or text)')
+        warnings.append(f'{column_totals} column-total row(s) skipped (bare '
+                        f'figures with no date, reference or text)')
     if unreferenced:
         conf -= 0.10
         val = round(sum(r['amount'] for r in records if r['ref'].startswith('~')), 2)

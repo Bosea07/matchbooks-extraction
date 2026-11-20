@@ -202,7 +202,9 @@ def _match_payment_lane(v_pay, z_pay, tolerance, date_window, rate=None,
         return abs(abs(z['amount']) - abs(v['amount'])) <= tolerance
 
     def _dates_agree(v, z):
-        vd, zd = _day(v.get('dateISO')), _day(z.get('dateISO'))
+        # dateGuess: the extractor's reading of a mistyped year, used here only
+        vd = _day(v.get('dateISO') or v.get('dateGuess'))
+        zd = _day(z.get('dateISO') or z.get('dateGuess'))
         return bool(vd and zd and abs(zd - vd) <= date_window)
 
     for i, v in enumerate(v_pay):
@@ -269,7 +271,8 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     from .normalize import parse_date
 
     def _iso(r):
-        if r.get('dateISO'):
+        # a date the extractor set aside as impossible stays set aside
+        if r.get('dateISO') or r.get('dateSuspect'):
             return r
         iso, _ = parse_date(r.get('date'))
         return dict(r, dateISO=iso) if iso else r
@@ -345,7 +348,14 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         -46,046.34 and -79,201.14. Matched row by row neither half can ever
         find its counterpart, and both land in the exception list. Summed, they
         are the payment they always were. Synthetic references are left alone —
-        they are not identities and must never be pooled."""
+        they are not identities and must never be pooled.
+
+        Clearing rows are posted together, on one date. Rows that share a
+        reference on DIFFERENT dates are different payments whose reference
+        happens to read the same — "BANK CHARGES" on four receipts, or two
+        sixteen-digit bank references both flattened to "5.00E+15" — and
+        pooling those turns two payments that each have a counterpart into one
+        that has none."""
         out, byref = [], {}
         for r in rows:
             if not (_is_payment(r) and r.get('amount') is not None):
@@ -355,10 +365,11 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
             if not ref or _is_synthetic(ref):
                 out.append(row)
                 continue
-            seen = byref.get(ref)
+            key = (ref, row.get('dateISO') or '')
+            seen = byref.get(key)
             if seen is None:
                 row['lines'] = 1
-                byref[ref] = row
+                byref[key] = row
                 out.append(row)
                 continue
             seen['amount'] = round(seen['amount'] + row['amount'], 2)

@@ -36,6 +36,7 @@ for %%F in (
   tests\test_foreign_currency_vendor.py
   tests\test_service_cache.py
   tests\test_section_pdf_robustness.py
+  tests\test_ledger_labels_and_slips.py
 ) do (
   echo ------------------------------------------------------------
   echo  %%F
