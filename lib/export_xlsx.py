@@ -20,6 +20,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import FormulaRule
 
+from lib.reconcile import TYPE_GROUP_LABEL, type_group
+
 FONT = 'Verdana'
 HDR_FILL = PatternFill('solid', fgColor='12263A')
 BAND_FILL = PatternFill('solid', fgColor='EEF2F5')
@@ -158,8 +160,9 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
              ['Vendor reference', 'Vendor date', 'Vendor type',
               f'Vendor {vcur}'.strip(), 'Our reference', 'Our date', 'Our type',
               f'Ours {zcur}'.strip(), 'Difference', 'Implied rate', 'Tier',
-              'Status', 'Basis for the match', 'Amount also found on the other side?'],
-             [24, 12, 13, 16, 24, 12, 13, 16, 14, 11, 6, 16, 42, 26])
+              'Status', 'Basis for the match', 'Amount also found on the other side?',
+              'Document type'],
+             [24, 12, 13, 16, 24, 12, 13, 16, 14, 11, 6, 16, 42, 26, 16])
     # engine columns: A vendorRef, E ourRef  → side sheets check against these
     mp.column_dimensions['A'].width = 24
 
@@ -222,8 +225,12 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
                 f'\"no such amount on the vendor statement\"),""))')
         c = mp.cell(row=R, column=14, value=look)
         c.font = BODY
+        # invoices, credit notes or payments — the Summary splits the
+        # difference on this column
+        grp = r.get('typeGroup') or type_group(r.get('type'))
+        mp.cell(row=R, column=15, value=TYPE_GROUP_LABEL[grp]).font = BODY
         if i % 2:
-            for col in range(1, 15):
+            for col in range(1, 16):
                 mp.cell(row=R, column=col).fill = BAND_FILL
 
     last = first + max(len(results), 1) - 1
@@ -238,7 +245,7 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
                        (BAD_FILL, 'Only in our books'), (WARN_FILL, 'Amount difference'),
                        (WARN_FILL, 'Rate outlier')):
         mp.conditional_formatting.add(
-            f'A{first}:N{last}',
+            f'A{first}:O{last}',
             FormulaRule(formula=[f'$L{first}="{word}"'], fill=fill))
     mp.cell(row=tot + 2, column=1,
             value='Green = pulled from the extraction tabs. Status and Difference are '
@@ -381,12 +388,86 @@ def build_workbook(vendor_rows, zoho_rows, result, meta=None):
     sm.conditional_formatting.add('C27', FormulaRule(formula=['$C$27="CHECK"'], fill=BAD_FILL,
         font=Font(name=FONT, size=10, bold=True, color='A03A1E')))
 
+    # ── the difference, split into invoices, credit notes and payments ───
+    # Three different conversations with the vendor, so three lines. Every
+    # figure is a formula over Mapping column O.
+    sm['A29'] = 'DIFFERENCE BY DOCUMENT TYPE'
+    sm['A29'].font = Font(name=FONT, size=10, bold=True, color='12263A')
+    split_heads = ['Document type', 'Rows', f'Vendor {vcur}'.strip(), f'Ours {zcur}'.strip(),
+                   'Difference (vendor less ours)', 'Of which: amounts differ',
+                   'Of which: only on vendor statement', 'Of which: only in our books',
+                   'Of which: set aside and rounding']
+    for i, label in enumerate(split_heads, 1):
+        c = sm.cell(row=30, column=i, value=label)
+        c.font, c.fill = HDR, HDR_FILL
+        c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    sm.row_dimensions[30].height = 28
+    for col in (6, 7, 8, 9):
+        sm.column_dimensions[get_column_letter(col)].width = 20
+    groups = [g for g in ('INVOICE', 'CREDIT_NOTE', 'PAYMENT', 'OTHER')
+              if g != 'OTHER' or any((r.get('typeGroup') or type_group(r.get('type'))) == 'OTHER'
+                                     for r in results)]
+    grp_rng = f'Mapping!$O${first}:$O${last}'
+    st_rng = f'Mapping!$L${first}:$L${last}'
+    v_rng = f'Mapping!$D${first}:$D${last}'
+    z_rng = f'Mapping!$H${first}:$H${last}'
+    d_rng = f'Mapping!$I${first}:$I${last}'
+    aside_after = SET_ASIDE['AFTER_STATEMENT']
+    s0 = 31
+    for i, g in enumerate(groups):
+        R = s0 + i
+        name = TYPE_GROUP_LABEL[g]
+        sm.cell(row=R, column=1, value=name).font = BODY
+        sm.cell(row=R, column=2, value=f'=COUNTIF({grp_rng},$A{R})').font = BODY
+        cells = [
+            (3, f'=SUMIF({grp_rng},$A{R},{v_rng})'),
+            # our bills dated after an open-items statement are outside the
+            # comparison, as in the balances above
+            (4, f'=SUMIF({grp_rng},$A{R},{z_rng})'
+                f'-SUMIFS({z_rng},{grp_rng},$A{R},{st_rng},"{aside_after}")'),
+        ]
+        if fx:
+            sm.cell(row=R, column=5, value='two currencies: not subtracted').font = MUTED
+        else:
+            cells += [
+                (5, f'=C{R}-D{R}'),
+                (6, f'=SUMIFS({d_rng},{grp_rng},$A{R},{st_rng},"Amount difference")'),
+                (7, f'=SUMIFS({v_rng},{grp_rng},$A{R},{st_rng},"Only on vendor statement")'),
+                (8, f'=-SUMIFS({z_rng},{grp_rng},$A{R},{st_rng},"Only in our books")'),
+                (9, f'=E{R}-F{R}-G{R}-H{R}'),
+            ]
+        for col, f in cells:
+            c = sm.cell(row=R, column=col, value=f)
+            c.font, c.number_format = LINK, MONEY
+        if i % 2:
+            for col in range(1, 10):
+                sm.cell(row=R, column=col).fill = BAND_FILL
+    st_tot = s0 + len(groups)
+    sm.cell(row=st_tot, column=1, value='Total').font = BOLD
+    sm.cell(row=st_tot, column=1).border = TOTAL_BORDER
+    c = sm.cell(row=st_tot, column=2, value=f'=SUM(B{s0}:B{st_tot - 1})')
+    c.font, c.border = BOLD, TOTAL_BORDER
+    for col in ((3, 4) if fx else (3, 4, 5, 6, 7, 8, 9)):
+        L = get_column_letter(col)
+        c = sm.cell(row=st_tot, column=col, value=f'=SUM({L}{s0}:{L}{st_tot - 1})')
+        c.font, c.number_format, c.border = BOLD, MONEY, TOTAL_BORDER
+    c = sm.cell(row=st_tot + 1, column=1,
+                value='Invoices include bills and debit notes. A positive difference means the '
+                      'vendor shows more than our books. Columns F to I add up to column E; '
+                      '"only in our books" is shown with its sign reversed so that they do.')
+    c.font = MUTED
+    c.alignment = Alignment(wrap_text=True, vertical='top')
+    sm.merge_cells(start_row=st_tot + 1, start_column=1, end_row=st_tot + 1, end_column=9)
+    sm.row_dimensions[st_tot + 1].height = 26
+
+    # ── the written findings come last, after every figure ───────────────
     findings = summary.get('findings') or []
     if findings:
-        sm['A29'] = 'FINDINGS'
-        sm['A29'].font = Font(name=FONT, size=10, bold=True, color='12263A')
+        f0 = st_tot + 3
+        sm.cell(row=f0, column=1, value='FINDINGS').font = \
+            Font(name=FONT, size=10, bold=True, color='12263A')
         for i, f in enumerate(findings[:12]):
-            R = 30 + i
+            R = f0 + 1 + i
             c = sm.cell(row=R, column=1, value='• ' + str(f))
             c.font = MUTED
             c.alignment = Alignment(wrap_text=True, vertical='top')

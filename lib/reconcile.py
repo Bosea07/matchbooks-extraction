@@ -168,6 +168,31 @@ def _aggregate(rows, side, dropped):
     return agg
 
 
+# ── kinds of document, for the split of the difference ──────────────────
+TYPE_GROUP_LABEL = {
+    'INVOICE': 'Invoices',
+    'CREDIT_NOTE': 'Credit notes',
+    'PAYMENT': 'Payments',
+    'OTHER': 'Other entries',
+}
+
+
+def type_group(t):
+    """Which of the three conversations a row belongs to. Bills and debit
+    notes are charges, so they sit with invoices; a refund is money moving,
+    so it sits with payments; journals, opening balances and combination
+    rows are 'Other'."""
+    s = str(t or '').strip().lower()
+    # a ledger's own voucher names count too: "PYMT Mumbai", "Sales GST"
+    if re.search(r'credit|\bcn\b|\bcrn\b|return', s):
+        return 'CREDIT_NOTE'
+    if re.search(r'payment|pymt|receipt|rcpt|refund|remittance', s):
+        return 'PAYMENT'
+    if re.search(r'invoice|\bbill|debit note|\bsales?\b|purchase', s):
+        return 'INVOICE'
+    return 'OTHER'
+
+
 # ── main entry ──────────────────────────────────────────────────────────
 def _is_payment(r):
     return str(r.get('type', '')).strip().lower() in ('payment', 'payment made', 'receipt')
@@ -804,6 +829,30 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                             'diff': None, 'status': 'MISSING_IN_VENDOR', 'tier': 0,
                             'note': 'our payment not reflected on vendor SOA'})
 
+    # ── a payment of ours the vendor never received, that we made before ──
+    # Our books show 23,437.16 paid on 27 April and 23,437.16 paid again on
+    # 17 July; the vendor shows one receipt. The second is reported as "not on
+    # the vendor's statement", which is true and points the wrong way: the
+    # likelier story is one payment entered twice (a facility loan booked when
+    # the bank paid the supplier and again when the loan was repaid). Said on
+    # the row, so the reader checks our own books before chasing the vendor.
+    # A possibility, not a verdict — the category stays "we sent".
+    twice = []
+    for r in results:
+        if not (r.get('lane') == 'payment' and r['status'] == 'MISSING_IN_VENDOR'):
+            continue
+        amt = r['zohoAmt']
+        twin = next((z_pay[j] for _i, j, _t, _n in pay_pairs
+                     if abs(z_pay[j]['amount'] - amt) < 0.005 and z_pay[j]['ref'] != r['zohoRef']), None)
+        if twin is None:
+            continue
+        r['possibleRepeatOf'] = twin['ref']
+        when = f" of {twin['dateISO']}" if twin.get('dateISO') else ''
+        r['note'] = (f"same amount as our payment {twin['ref']}{when}, which the vendor "
+                     f"shows receiving once — check whether one payment was entered twice · "
+                     + r['note'])
+        twice.append(r)
+
     # nearest unmatched counterpart — when the engine cannot justify a pair, it
     # still says which row on the other side is closest, so a human closes the
     # loop in one glance instead of scanning two lists.
@@ -1166,6 +1215,15 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
                 (f"{r['zohoRef']} booked {r['zohoDuplicate']} times" if r.get('zohoDuplicate')
                  else f"{r['zohoRef']} duplicates {r['probableDuplicateOf']}")
                 for r in dup_rows[:6]) + '. Void the extra copy before paying.')
+    if twice:
+        t = round(sum(abs(r['zohoAmt']) for r in twice), 2)
+        open_notes.append(
+            f'{len(twice)} payment(s) in our books worth {t:,.2f} are not on the vendor '
+            f'statement and repeat the amount of an earlier payment of ours that the vendor '
+            f'did receive: ' + '; '.join(
+                f"{r['zohoRef']} ({abs(r['zohoAmt']):,.2f}) repeats {r['possibleRepeatOf']}"
+                for r in twice[:6])
+            + '. Check our books for one payment entered twice before asking the vendor.')
     for n in reversed(open_notes):
         syn_notes.insert(0, n)
 
@@ -1326,6 +1384,76 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
         b['value'] = round(b['value'] + ((r.get('vendorAmt') if r.get('vendorAmt') is not None
                                           else r.get('zohoAmt')) or 0), 2)
 
+    # ── the same difference, split by kind of document ───────────────────
+    # "The balances are 117,687.76 apart" is one number made of three
+    # unrelated conversations: invoices one side has not booked, credit notes
+    # that were never passed on, and payments one side has not recorded. A
+    # reviewer hands each to a different person, so each gets its own line.
+    # The lines add up to the net difference exactly — whatever no row
+    # explains (the residue of a combination match) is shown under "Other"
+    # rather than dropped.
+    amounts_comparable = not fx_rate and not rate_unknown
+    by_type = {}
+
+    def _bucket(key):
+        return by_type.setdefault(key, {
+            'label': TYPE_GROUP_LABEL[key], 'rows': 0,
+            'vendorTotal': 0.0, 'zohoTotal': 0.0,
+            'matched': 0,
+            'amountDiff': 0, 'amountDiffValue': 0.0,
+            'extraInVendor': 0, 'extraInVendorValue': 0.0,
+            'missingInVendor': 0, 'missingInVendorValue': 0.0,
+            'setAside': 0, 'setAsideValue': 0.0})
+
+    for key in ('INVOICE', 'CREDIT_NOTE', 'PAYMENT'):
+        _bucket(key)
+    for r in results:
+        g = type_group(r.get('type'))
+        r['typeGroup'] = g
+        b = _bucket(g)
+        b['rows'] += 1
+        st = r['status']
+        va = r.get('vendorAmt') or 0
+        # our bills dated after an open-items statement are outside the
+        # comparison, exactly as they are outside zoho_net
+        za = 0 if st == 'AFTER_STATEMENT' else (r.get('zohoAmt') or 0)
+        b['vendorTotal'] = round(b['vendorTotal'] + va, 2)
+        b['zohoTotal'] = round(b['zohoTotal'] + za, 2)
+        if st == 'MATCHED':
+            b['matched'] += 1
+        elif st == 'AMOUNT_DIFF':
+            b['amountDiff'] += 1
+            if r.get('vendorAmt') is not None and r.get('zohoAmt') is not None:
+                b['amountDiffValue'] = round(b['amountDiffValue'] + va - za, 2)
+        elif st == 'EXTRA_IN_VENDOR':
+            b['extraInVendor'] += 1
+            b['extraInVendorValue'] = round(b['extraInVendorValue'] + va, 2)
+        elif st == 'MISSING_IN_VENDOR':
+            b['missingInVendor'] += 1
+            b['missingInVendorValue'] = round(b['missingInVendorValue'] + za, 2)
+        else:
+            b['setAside'] += 1
+            b['setAsideValue'] = round(b['setAsideValue'] + va - za, 2)
+    for b in by_type.values():
+        b['difference'] = round(b['vendorTotal'] - b['zohoTotal'], 2)
+    unexplained = round(round(vendor_net - zoho_net, 2)
+                        - sum(b['difference'] for b in by_type.values()), 2)
+    if abs(unexplained) > 0.005:
+        o = _bucket('OTHER')
+        o['unallocated'] = unexplained
+        o['difference'] = round(o['difference'] + unexplained, 2)
+    for b in by_type.values():
+        # what is left of the line after the exceptions and the rows set
+        # aside: pennies on pairs that agree within tolerance
+        b['roundingValue'] = round(b['difference'] - b['amountDiffValue']
+                                   - b['extraInVendorValue'] + b['missingInVendorValue']
+                                   - b['setAsideValue'], 2)
+        if not amounts_comparable:
+            # two currencies: a subtraction is not a difference
+            b['difference'] = None
+            b['roundingValue'] = None
+    by_type_order = [k for k in ('INVOICE', 'CREDIT_NOTE', 'PAYMENT', 'OTHER') if k in by_type]
+
     # ── group the results by calendar year ───────────────────────────────
     # Statements routinely span several years, and a 2024 exception left open
     # is a different conversation from one raised last month. Grouping happens
@@ -1368,6 +1496,10 @@ def reconcile(vendor_rows, zoho_rows, tolerance=TOL_DEFAULT,
     summary = {
         'totalReferences': len(results),
         'byCategory': by_category,
+        # the net difference split into invoices, credit notes and payments;
+        # the 'difference' of the lines adds up to netDifference
+        'byType': by_type,
+        'byTypeOrder': by_type_order,
         'byYear': by_year,
         'years': years,
         'multiYear': len(years) > 1,

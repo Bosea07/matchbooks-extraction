@@ -162,6 +162,29 @@ def test_mistyped_year_still_pairs_a_payment_that_differs_by_bank_charges():
     assert s['extraInVendor'] == 0 and s['missingInVendor'] == 0, s
 
 
+# ── 7. our payment the vendor never got, that we had already made once ──
+def test_unreceived_payment_repeating_an_earlier_one_is_pointed_at_our_books():
+    vendor = [{'ref': '2559', 'amount': -23408.48, 'dateISO': '2026-04-29', 'type': 'Payment'}]
+    ours = [{'ref': 'LN-APR', 'amount': -23437.16, 'dateISO': '2026-04-27', 'type': 'Payment'},
+            {'ref': 'LN-JUL', 'amount': -23437.16, 'dateISO': '2026-07-17', 'type': 'Payment'}]
+    out = reconcile(vendor, ours)
+    miss = [r for r in out['results'] if r['status'] == 'MISSING_IN_VENDOR']
+    assert len(miss) == 1 and miss[0]['zohoRef'] == 'LN-JUL', out['results']
+    assert miss[0]['possibleRepeatOf'] == 'LN-APR' and 'entered twice' in miss[0]['note']
+    assert miss[0]['category'] == 'WE_SENT'
+    assert any('entered twice' in f for f in out['summary']['findings'])
+
+
+def test_unreceived_payment_of_a_new_amount_is_not_called_a_repeat():
+    vendor = [{'ref': '2559', 'amount': -23408.48, 'dateISO': '2026-04-29', 'type': 'Payment'}]
+    ours = [{'ref': 'LN-APR', 'amount': -23437.16, 'dateISO': '2026-04-27', 'type': 'Payment'},
+            {'ref': 'KWA-VP-1872', 'amount': -5167.18, 'dateISO': '2025-08-06', 'type': 'Payment'}]
+    out = reconcile(vendor, ours)
+    miss = [r for r in out['results'] if r['status'] == 'MISSING_IN_VENDOR']
+    assert len(miss) == 1 and 'possibleRepeatOf' not in miss[0], miss
+    assert not any('entered twice' in f for f in out['summary']['findings'])
+
+
 if __name__ == '__main__':
     fns = [v for k, v in sorted(globals().items()) if k.startswith('test_')]
     for fn in fns:

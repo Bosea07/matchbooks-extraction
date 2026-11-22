@@ -67,9 +67,20 @@ def main(vendor_path, ours_path):
         if k in s:
             print(f'   {k:<30} {s[k]}')
 
-    print('\n   FINDINGS:')
-    for f in s.get('findings', []):
-        print(f'     - {f}')
+    # The difference, split into invoices, credit notes and payments.
+    def money(x):
+        return f'{x:>16,.2f}' if x is not None else f'{"n/a":>16}'
+
+    print('\n   DIFFERENCE BY DOCUMENT TYPE (vendor less ours):')
+    print(f'      {"":<14}{"rows":>5}{"vendor":>16}{"ours":>16}{"difference":>16}'
+          f'{"amounts differ":>16}{"only vendor":>16}{"only ours":>16}{"set aside":>16}')
+    for k in s.get('byTypeOrder', []):
+        b = s['byType'][k]
+        print(f'      {b["label"]:<14}{b["rows"]:>5}{money(b["vendorTotal"])}'
+              f'{money(b["zohoTotal"])}{money(b["difference"])}{money(b["amountDiffValue"])}'
+              f'{money(b["extraInVendorValue"])}{money(-b["missingInVendorValue"])}'
+              f'{money(b["setAsideValue"])}')
+    print(f'      {"Total":<14}{"":>5}{"":>16}{"":>16}{money(s.get("netDifference"))}')
 
     # Why are the unmatched rows unmatched? Split them by what they are and
     # when they happened — a hundred exceptions with one cause is one problem.
@@ -100,6 +111,11 @@ def main(vendor_path, ours_path):
         print(f'      {str(r.get("dateISO") or ""):<12}{str(r["ref"])[:34]:<36}'
               f'{(r.get("vendorAmt") or 0):>13,.2f}{(r.get("zohoAmt") or 0):>13,.2f}'
               f'{(r.get("diff") or 0):>11,.2f}')
+
+    # the written findings come last, after every figure
+    print('\n   FINDINGS:')
+    for f in s.get('findings', []):
+        print(f'     - {f}')
 
 
 if __name__ == '__main__':
